@@ -212,7 +212,7 @@ impl CookieManager {
     let profile_data_path = profile.get_profile_data_path(profiles_dir);
 
     match profile.browser.as_str() {
-      "wayfern" => {
+      browser if crate::browser::is_chromium_target(browser) => {
         let path = Self::wayfern_cookie_path(&profile_data_path);
         if path.exists() {
           Ok(path)
@@ -238,7 +238,7 @@ impl CookieManager {
     let profile_data_path = profile.get_profile_data_path(profiles_dir);
 
     match profile.browser.as_str() {
-      "wayfern" => {
+      browser if crate::browser::is_chromium_target(browser) => {
         let path = Self::wayfern_cookie_path(&profile_data_path);
         if !path.exists() {
           Self::create_empty_chrome_cookies_db(&path)?;
@@ -509,7 +509,7 @@ impl CookieManager {
     let db_path = Self::get_cookie_db_path(profile, &profiles_dir)?;
 
     let cookies = match profile.browser.as_str() {
-      "wayfern" => {
+      browser if crate::browser::is_chromium_target(browser) => {
         let key = Self::get_chrome_encryption_key(profile, &profiles_dir);
         Self::read_chrome_cookies(&db_path, key.as_ref())?
       }
@@ -615,7 +615,7 @@ impl CookieManager {
     let conn = Self::open_cookie_db_readonly(&db_path)?;
 
     let (count_sql, domain_sql) = match profile.browser.as_str() {
-      "wayfern" => (
+      browser if crate::browser::is_chromium_target(browser) => (
         "SELECT COUNT(*) FROM cookies",
         "SELECT host_key, COUNT(*) FROM cookies GROUP BY host_key ORDER BY COUNT(*) DESC, host_key ASC",
       ),
@@ -689,7 +689,7 @@ impl CookieManager {
 
     let source_db_path = Self::get_cookie_db_path(source, &profiles_dir)?;
     let all_cookies = match source.browser.as_str() {
-      "wayfern" => {
+      browser if crate::browser::is_chromium_target(browser) => {
         let key = Self::get_chrome_encryption_key(source, &profiles_dir);
         Self::read_chrome_cookies(&source_db_path, key.as_ref())?
       }
@@ -760,7 +760,9 @@ impl CookieManager {
       };
 
       let write_result = match target.browser.as_str() {
-        "wayfern" => Self::write_chrome_cookies(&target_db_path, &cookies_to_copy),
+        browser if crate::browser::is_chromium_target(browser) => {
+          Self::write_chrome_cookies(&target_db_path, &cookies_to_copy)
+        }
         _ => {
           results.push(CookieCopyResult {
             target_profile_id: target_id.clone(),
@@ -1025,7 +1027,9 @@ impl CookieManager {
     let db_path = Self::ensure_cookie_db_path(profile, &profiles_dir)?;
 
     let write_result = match profile.browser.as_str() {
-      "wayfern" => Self::write_chrome_cookies(&db_path, &cookies),
+      browser if crate::browser::is_chromium_target(browser) => {
+        Self::write_chrome_cookies(&db_path, &cookies)
+      }
       _ => return Err(format!("Unsupported browser type: {}", profile.browser)),
     };
 

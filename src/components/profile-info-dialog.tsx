@@ -72,7 +72,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { translateBackendError } from "@/lib/backend-errors";
-import { getProfileIcon } from "@/lib/browser-utils";
+import { getProfileIcon, isChromiumProfileBrowser } from "@/lib/browser-utils";
 import { formatRelativeTime } from "@/lib/flag-utils";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
@@ -338,7 +338,7 @@ export function ProfileInfoDialog({
   if (!profile) return null;
 
   const ProfileIcon = getProfileIcon(profile);
-  const isWayfern = profile.browser === "wayfern";
+  const isWayfern = isChromiumProfileBrowser(profile.browser);
   const isDeleteDisabled = isRunning;
 
   const proxyName = profile.proxy_id
@@ -1793,7 +1793,7 @@ function FingerprintSectionInline({
     setSuccess(null);
   }, [profile.wayfern_config]);
 
-  const isWayfern = profile.browser === "wayfern";
+  const isWayfern = isChromiumProfileBrowser(profile.browser);
 
   if (!isWayfern) {
     return (

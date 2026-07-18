@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { isChromiumProfileBrowser } from "@/lib/browser-utils";
 import type { BrowserProfile, WayfernConfig, WayfernOS } from "@/types";
 import { LoadingButton } from "./loading-button";
 import { RippleButton } from "./ui/ripple";
@@ -48,7 +49,7 @@ export function WayfernConfigDialog({
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (profile?.browser === "wayfern") {
+    if (profile && isChromiumProfileBrowser(profile.browser)) {
       setConfig(
         profile.wayfern_config || {
           geoip: true,
@@ -96,7 +97,7 @@ export function WayfernConfigDialog({
   };
 
   const handleClose = () => {
-    if (profile?.browser === "wayfern") {
+    if (profile && isChromiumProfileBrowser(profile.browser)) {
       setConfig(
         profile.wayfern_config || {
           geoip: true,
@@ -107,7 +108,7 @@ export function WayfernConfigDialog({
     onClose();
   };
 
-  if (profile?.browser !== "wayfern") {
+  if (!profile || !isChromiumProfileBrowser(profile.browser)) {
     return null;
   }
 
@@ -119,11 +120,11 @@ export function WayfernConfigDialog({
             {isRunning
               ? t("wayfernConfigDialog.titleView", {
                   name: profile.name,
-                  browser: "Wayfern",
+                  browser: "Chromium",
                 })
               : t("wayfernConfigDialog.titleConfigure", {
                   name: profile.name,
-                  browser: "Wayfern",
+                  browser: "Chromium",
                 })}
           </DialogTitle>
         </DialogHeader>
@@ -138,7 +139,7 @@ export function WayfernConfigDialog({
               crossOsUnlocked={crossOsUnlocked}
               limitedMode={!crossOsUnlocked}
               profileVersion={profile.version}
-              profileBrowser="wayfern"
+              profileBrowser="chromium"
             />
           </div>
         </ScrollArea>

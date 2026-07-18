@@ -382,6 +382,214 @@ impl WayfernManager {
     }
   }
 
+  fn is_wayfern_cdp_unsupported(error: &str) -> bool {
+    error.contains("-32601")
+      || error.contains("Method not found")
+      || error.contains("wasn't found")
+      || error.contains("not found")
+  }
+
+  fn fallback_user_agent(os: &str) -> (&'static str, &'static str) {
+    match os {
+      "windows" => (
+        "Win32",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      ),
+      "macos" => (
+        "MacIntel",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      ),
+      "android" => (
+        "Linux armv8l",
+        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      ),
+      "ios" => (
+        "iPhone",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1",
+      ),
+      _ => (
+        "Linux x86_64",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      ),
+    }
+  }
+
+  async fn build_system_chromium_fingerprint(
+    profile: &BrowserProfile,
+    config: &WayfernConfig,
+  ) -> (serde_json::Value, bool) {
+    let os = config
+      .os
+      .as_deref()
+      .unwrap_or(if cfg!(target_os = "macos") {
+        "macos"
+      } else if cfg!(target_os = "linux") {
+        "linux"
+      } else {
+        "windows"
+      });
+    let (platform, user_agent) = Self::fallback_user_agent(os);
+    let screen_width = config
+      .screen_max_width
+      .or(config.screen_min_width)
+      .unwrap_or(1920);
+    let screen_height = config
+      .screen_max_height
+      .or(config.screen_min_height)
+      .unwrap_or(1080);
+    let avail_height = screen_height.saturating_sub(40).max(1);
+    let inner_height = avail_height.saturating_sub(88).max(1);
+    let hardware_concurrency = std::thread::available_parallelism()
+      .map(|n| n.get())
+      .unwrap_or(8);
+
+    let mut fingerprint = json!({
+      "userAgent": user_agent,
+      "platform": platform,
+      "platformVersion": "",
+      "brand": "Chromium",
+      "brandVersion": "120",
+      "hardwareConcurrency": hardware_concurrency,
+      "maxTouchPoints": if matches!(os, "android" | "ios") { 5 } else { 0 },
+      "deviceMemory": 8,
+      "screenWidth": screen_width,
+      "screenHeight": screen_height,
+      "screenAvailWidth": screen_width,
+      "screenAvailHeight": avail_height,
+      "screenColorDepth": 24,
+      "screenPixelDepth": 24,
+      "devicePixelRatio": 1,
+      "windowOuterWidth": screen_width,
+      "windowOuterHeight": avail_height,
+      "windowInnerWidth": screen_width,
+      "windowInnerHeight": inner_height,
+      "screenX": 0,
+      "screenY": 0,
+      "language": "en-US",
+      "languages": ["en-US", "en"],
+      "timezone": "America/New_York",
+      "timezoneOffset": 300,
+      "accuracy": 100,
+      "canvasNoiseSeed": profile.id.to_string(),
+      "vendor": "Google Inc.",
+      "productSub": "20030107",
+      "cookieEnabled": true,
+      "pdfViewerEnabled": true,
+      "webdriver": false,
+    });
+
+    let geolocation_applied = Self::apply_geolocation(
+      &mut fingerprint,
+      config.proxy.as_deref(),
+      config.geoip.as_ref(),
+    )
+    .await;
+
+    (fingerprint, geolocation_applied)
+  }
+
+  async fn apply_standard_chromium_overrides(&self, ws_url: &str, fingerprint: &serde_json::Value) {
+    let fp = fingerprint.get("fingerprint").unwrap_or(fingerprint);
+    let Some(obj) = fp.as_object() else {
+      return;
+    };
+
+    let read_str = |key: &str| {
+      obj
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+    };
+    let read_u32 = |key: &str| -> Option<u32> {
+      obj
+        .get(key)
+        .and_then(|v| {
+          v.as_u64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+        })
+        .filter(|n| *n > 0)
+        .map(|n| n as u32)
+    };
+    let read_f64 = |key: &str| -> Option<f64> {
+      obj.get(key).and_then(|v| {
+        v.as_f64()
+          .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+      })
+    };
+
+    if let Some(user_agent) = read_str("userAgent") {
+      let mut params = json!({ "userAgent": user_agent });
+      if let Some(platform) = read_str("platform") {
+        params["platform"] = json!(platform);
+      }
+      if let Some(language) = read_str("language") {
+        params["acceptLanguage"] = json!(language);
+      }
+      if let Err(e) = self
+        .send_cdp_command(ws_url, "Network.setUserAgentOverride", params)
+        .await
+      {
+        log::warn!("Failed to apply Chromium user-agent override: {e}");
+      }
+    }
+
+    let width = read_u32("windowInnerWidth")
+      .or_else(|| read_u32("screenAvailWidth"))
+      .or_else(|| read_u32("screenWidth"));
+    let height = read_u32("windowInnerHeight")
+      .or_else(|| read_u32("screenAvailHeight"))
+      .or_else(|| read_u32("screenHeight"));
+    if let (Some(width), Some(height)) = (width, height) {
+      let device_scale_factor = read_f64("devicePixelRatio").unwrap_or(1.0).max(0.1);
+      let mobile = read_u32("maxTouchPoints").unwrap_or(0) > 0;
+      if let Err(e) = self
+        .send_cdp_command(
+          ws_url,
+          "Emulation.setDeviceMetricsOverride",
+          json!({
+            "width": width,
+            "height": height,
+            "deviceScaleFactor": device_scale_factor,
+            "mobile": mobile,
+          }),
+        )
+        .await
+      {
+        log::warn!("Failed to apply Chromium device metrics override: {e}");
+      }
+    }
+
+    if let Some(timezone) = read_str("timezone") {
+      if let Err(e) = self
+        .send_cdp_command(
+          ws_url,
+          "Emulation.setTimezoneOverride",
+          json!({ "timezoneId": timezone }),
+        )
+        .await
+      {
+        log::warn!("Failed to apply Chromium timezone override: {e}");
+      }
+    }
+
+    if let (Some(latitude), Some(longitude)) = (read_f64("latitude"), read_f64("longitude")) {
+      if let Err(e) = self
+        .send_cdp_command(
+          ws_url,
+          "Emulation.setGeolocationOverride",
+          json!({
+            "latitude": latitude,
+            "longitude": longitude,
+            "accuracy": read_f64("accuracy").unwrap_or(100.0),
+          }),
+        )
+        .await
+      {
+        log::warn!("Failed to apply Chromium geolocation override: {e}");
+      }
+    }
+  }
+
   /// Refresh ONLY the location fields (timezone, offset, latitude/longitude,
   /// language) of an already-generated fingerprint to match the current proxy,
   /// leaving every other fingerprint field untouched. `proxy` is the local
@@ -579,6 +787,17 @@ impl WayfernManager {
 
     if let Err(e) = refresh_result {
       cleanup().await;
+      let message = e.to_string();
+      if Self::is_wayfern_cdp_unsupported(&message) {
+        log::warn!(
+          "System Chromium does not support Wayfern.refreshFingerprint; using fallback Chromium fingerprint data"
+        );
+        let (fallback, geolocation_applied) =
+          Self::build_system_chromium_fingerprint(profile, config).await;
+        let fingerprint_json = serde_json::to_string(&fallback)
+          .map_err(|e| format!("Failed to serialize fallback fingerprint: {e}"))?;
+        return Ok((fingerprint_json, geolocation_applied));
+      }
       return Err(format!("Failed to refresh fingerprint: {e}").into());
     }
 
@@ -884,37 +1103,6 @@ impl WayfernManager {
     let profile_color = profile_color.trim().trim_start_matches('#');
     args.push(format!("--wayfern-profile-color={profile_color}"));
 
-    let mut wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-    if wayfern_token.is_none()
-      && crate::cloud_auth::CLOUD_AUTH
-        .has_active_paid_subscription()
-        .await
-    {
-      // Brief wait for the background token fetch — when the API is healthy
-      // the token usually lands in well under a second. If api.donutbrowser.com
-      // is unreachable we don't want to gate the whole launch on it; the
-      // browser still works without the token (cross-OS fingerprinting just
-      // won't be enabled for this session, and the next launch will pick it
-      // up once the token arrives).
-      log::info!("Wayfern token not ready for paid user, waiting briefly...");
-      for _ in 0..3 {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-        if wayfern_token.is_some() {
-          break;
-        }
-      }
-      if wayfern_token.is_none() {
-        log::warn!(
-          "Wayfern token still unavailable after wait; launching without it (api.donutbrowser.com may be unreachable)"
-        );
-      }
-    }
-    if let Some(ref token) = wayfern_token {
-      args.push(format!("--wayfern-token={token}"));
-      log::info!("Wayfern token passed as CLI flag (length: {})", token.len());
-    }
-
     if let Some(proxy) = proxy_url {
       // Map the local proxy scheme to the matching PAC directive. SOCKS5 lets
       // Chromium route UDP (QUIC/WebRTC) and resolve DNS through the proxy;
@@ -967,6 +1155,7 @@ impl WayfernManager {
 
     // Apply fingerprint if configured
     let mut used_fingerprint: Option<String> = None;
+    let mut used_standard_cdp_overrides = false;
     if let Some(fingerprint_json) = &config.fingerprint {
       log::info!(
         "Applying fingerprint to Wayfern browser, fingerprint length: {} chars",
@@ -1029,14 +1218,7 @@ impl WayfernManager {
         );
       }
 
-      // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
-      let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-      let mut fingerprint_params = fingerprint_for_cdp.clone();
-      if let Some(ref token) = wayfern_token {
-        if let Some(obj) = fingerprint_params.as_object_mut() {
-          obj.insert("wayfernToken".to_string(), json!(token));
-        }
-      }
+      let fingerprint_params = fingerprint_for_cdp.clone();
 
       for target in &page_targets {
         if let Some(ws_url) = &target.websocket_debugger_url {
@@ -1069,7 +1251,20 @@ impl WayfernManager {
                 }
               }
             }
-            Err(e) => log::error!("Failed to apply fingerprint to target: {e}"),
+            Err(e) => {
+              let message = e.to_string();
+              if Self::is_wayfern_cdp_unsupported(&message) {
+                log::warn!(
+                  "System Chromium does not support Wayfern.setFingerprint; applying standard Chromium CDP overrides"
+                );
+                self
+                  .apply_standard_chromium_overrides(ws_url, &fingerprint_for_cdp)
+                  .await;
+                used_standard_cdp_overrides = true;
+              } else {
+                log::error!("Failed to apply fingerprint to target: {e}");
+              }
+            }
           }
         }
       }
@@ -1095,9 +1290,11 @@ impl WayfernManager {
 
     for target in &page_targets {
       if let Some(ws_url) = &target.websocket_debugger_url {
-        let _ = self
-          .send_cdp_command(ws_url, "Emulation.clearDeviceMetricsOverride", json!({}))
-          .await;
+        if !used_standard_cdp_overrides {
+          let _ = self
+            .send_cdp_command(ws_url, "Emulation.clearDeviceMetricsOverride", json!({}))
+            .await;
+        }
         let _ = self
           .send_cdp_command(
             ws_url,
