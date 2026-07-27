@@ -1098,7 +1098,8 @@
       "asusZenbook14": "ASUS Zenbook 14",
       "acerSwift14": "Acer Swift 14",
       "lenovoYoga7i": "Lenovo Yoga 7i"
-    }
+    },
+    "manualLocationRequired": "Khi tắt đồng bộ vị trí tự động theo IP, bắt buộc phải nhập múi giờ, độ lệch, vĩ độ, kinh độ và độ chính xác."
   },
   "warnings": {
     "windowResizeTitle": "Kích thước cửa sổ tùy chỉnh",

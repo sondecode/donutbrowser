@@ -1098,7 +1098,8 @@
       "asusZenbook14": "ASUS Zenbook 14",
       "acerSwift14": "Acer Swift 14",
       "lenovoYoga7i": "Lenovo Yoga 7i"
-    }
+    },
+    "manualLocationRequired": "关闭按 IP 自动同步位置时，必须填写时区、偏移、纬度、经度和精度。"
   },
   "warnings": {
     "windowResizeTitle": "自定义窗口尺寸",

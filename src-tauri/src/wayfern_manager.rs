@@ -47,6 +47,45 @@ pub struct WayfernConfig {
   pub geo_proxy_signature: Option<String>,
 }
 
+impl WayfernConfig {
+  pub fn validate_manual_location(&self) -> Result<(), String> {
+    if !matches!(self.geoip.as_ref(), Some(serde_json::Value::Bool(false))) {
+      return Ok(());
+    }
+
+    let fingerprint = self
+      .fingerprint
+      .as_deref()
+      .ok_or_else(|| "Manual location requires a fingerprint".to_string())?;
+    let parsed: serde_json::Value = serde_json::from_str(fingerprint)
+      .map_err(|e| format!("Manual location fingerprint is invalid JSON: {e}"))?;
+    let fp = parsed.get("fingerprint").unwrap_or(&parsed);
+    let obj = fp
+      .as_object()
+      .ok_or_else(|| "Manual location fingerprint must be a JSON object".to_string())?;
+
+    let has_timezone = obj
+      .get("timezone")
+      .and_then(|v| v.as_str())
+      .is_some_and(|value| !value.trim().is_empty());
+    if !has_timezone {
+      return Err("Manual location requires timezone".to_string());
+    }
+
+    for key in ["timezoneOffset", "latitude", "longitude", "accuracy"] {
+      if !obj
+        .get(key)
+        .and_then(|v| v.as_f64())
+        .is_some_and(f64::is_finite)
+      {
+        return Err(format!("Manual location requires valid {key}"));
+      }
+    }
+
+    Ok(())
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct WayfernLaunchResult {

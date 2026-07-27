@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { isChromiumProfileBrowser } from "@/lib/browser-utils";
+import { isManualLocationComplete } from "@/lib/fingerprint-location";
 import type { BrowserProfile, WayfernConfig, WayfernOS } from "@/types";
 import { LoadingButton } from "./loading-button";
 import { RippleButton } from "./ui/ripple";
@@ -76,6 +77,12 @@ export function WayfernConfigDialog({
         });
         return;
       }
+    }
+
+    if (!isManualLocationComplete(config)) {
+      const { toast } = await import("sonner");
+      toast.error(t("fingerprint.manualLocationRequired"));
+      return;
     }
 
     setIsSaving(true);
@@ -152,7 +159,7 @@ export function WayfernConfigDialog({
             <LoadingButton
               isLoading={isSaving}
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || !isManualLocationComplete(config)}
             >
               {t("common.buttons.save")}
             </LoadingButton>

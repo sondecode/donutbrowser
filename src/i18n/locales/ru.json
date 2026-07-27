@@ -1098,7 +1098,8 @@
       "asusZenbook14": "ASUS Zenbook 14",
       "acerSwift14": "Acer Swift 14",
       "lenovoYoga7i": "Lenovo Yoga 7i"
-    }
+    },
+    "manualLocationRequired": "Когда автоматическая синхронизация местоположения по IP отключена, требуются часовой пояс, смещение, широта, долгота и точность."
   },
   "warnings": {
     "windowResizeTitle": "Пользовательские размеры окна",

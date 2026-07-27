@@ -1098,7 +1098,8 @@
       "asusZenbook14": "ASUS Zenbook 14",
       "acerSwift14": "Acer Swift 14",
       "lenovoYoga7i": "Lenovo Yoga 7i"
-    }
+    },
+    "manualLocationRequired": "When automatic IP location sync is off, timezone, offset, latitude, longitude, and accuracy are required."
   },
   "warnings": {
     "windowResizeTitle": "Özel Pencere Boyutları",

@@ -1098,7 +1098,8 @@
       "asusZenbook14": "ASUS Zenbook 14",
       "acerSwift14": "Acer Swift 14",
       "lenovoYoga7i": "Lenovo Yoga 7i"
-    }
+    },
+    "manualLocationRequired": "Lorsque la synchronisation automatique de la localisation IP est désactivée, le fuseau horaire, le décalage, la latitude, la longitude et la précision sont requis."
   },
   "warnings": {
     "windowResizeTitle": "Dimensions de fenêtre personnalisées",

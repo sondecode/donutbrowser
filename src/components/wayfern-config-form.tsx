@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { isManualLocationComplete } from "@/lib/fingerprint-location";
 import {
   applyHardwarePreset,
   HARDWARE_PRESET_GROUPS,
@@ -182,6 +183,7 @@ export function WayfernConfigForm({
   };
 
   const isAutoLocationEnabled = config.geoip !== false;
+  const isManualLocationMissing = !isManualLocationComplete(config);
 
   const handleAutoLocationToggle = (enabled: boolean) => {
     if (enabled) {
@@ -820,6 +822,13 @@ export function WayfernConfigForm({
             <p className="text-sm text-muted-foreground">
               {t("fingerprint.timezoneGeolocationDescription")}
             </p>
+            {!isAutoLocationEnabled && isManualLocationMissing && (
+              <Alert>
+                <AlertDescription>
+                  {t("fingerprint.manualLocationRequired")}
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="grid grid-cols-1 gap-4 @md:grid-cols-2 @2xl:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="timezone">
@@ -1279,6 +1288,13 @@ export function WayfernConfigForm({
                   {t("fingerprint.autoLocationDescription")}
                 </Label>
               </div>
+              {!isAutoLocationEnabled && isManualLocationMissing && (
+                <Alert>
+                  <AlertDescription>
+                    {t("fingerprint.manualLocationRequired")}
+                  </AlertDescription>
+                </Alert>
+              )}
             </div>
 
             {/* Screen Resolution */}

@@ -1098,7 +1098,8 @@
       "asusZenbook14": "ASUS Zenbook 14",
       "acerSwift14": "Acer Swift 14",
       "lenovoYoga7i": "Lenovo Yoga 7i"
-    }
+    },
+    "manualLocationRequired": "IP 位置情報の自動同期がオフの場合、タイムゾーン、オフセット、緯度、経度、精度が必須です。"
   },
   "warnings": {
     "windowResizeTitle": "カスタムウィンドウサイズ",

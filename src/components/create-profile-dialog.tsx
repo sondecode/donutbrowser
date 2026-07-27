@@ -53,6 +53,7 @@ import { useBrowserDownload } from "@/hooks/use-browser-download";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
 import { getBrowserIcon } from "@/lib/browser-utils";
+import { isManualLocationComplete } from "@/lib/fingerprint-location";
 import { cn } from "@/lib/utils";
 import type { BrowserReleaseTypes, WayfernConfig, WayfernOS } from "@/types";
 
@@ -368,6 +369,7 @@ export function CreateProfileDialog({
 
   const handleCreate = async () => {
     if (!profileName.trim()) return;
+    if (!isManualLocationComplete(wayfernConfig)) return;
 
     if (enablePassword && !ephemeral) {
       if (password.length < PASSWORD_MIN_LEN) {
@@ -517,6 +519,7 @@ export function CreateProfileDialog({
     if (!selectedBrowser) return true;
     if (isBrowserCurrentlyDownloading(selectedBrowser)) return true;
     if (!getCreatableVersion(selectedBrowser)) return true;
+    if (!isManualLocationComplete(wayfernConfig)) return true;
 
     return false;
   }, [
@@ -524,6 +527,7 @@ export function CreateProfileDialog({
     selectedBrowser,
     isBrowserCurrentlyDownloading,
     getCreatableVersion,
+    wayfernConfig,
   ]);
 
   // Filter supported browsers for regular browsers

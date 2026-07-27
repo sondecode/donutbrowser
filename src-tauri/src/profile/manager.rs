@@ -119,6 +119,12 @@ impl ProfileManager {
       browser
     };
 
+    if let Some(config) = wayfern_config.as_ref() {
+      config
+        .validate_manual_location()
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+    }
+
     // Check if a profile with this name already exists (case insensitive)
     let existing_profiles = self.list_profiles()?;
     if existing_profiles
@@ -1087,6 +1093,10 @@ impl ProfileManager {
       );
     }
 
+    config
+      .validate_manual_location()
+      .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
     // Update the Wayfern configuration
     profile.wayfern_config = Some(config);
 
@@ -1888,13 +1898,13 @@ pub async fn update_wayfern_config(
   profile_id: String,
   config: WayfernConfig,
 ) -> Result<(), String> {
-  if config.fingerprint.is_some()
-    && !crate::cloud_auth::CLOUD_AUTH
-      .can_use_cross_os_fingerprints()
-      .await
-  {
-    return Err(serde_json::json!({ "code": "FINGERPRINT_REQUIRES_PRO" }).to_string());
-  }
+  // if config.fingerprint.is_some()
+  //   && !crate::cloud_auth::CLOUD_AUTH
+  //     .can_use_cross_os_fingerprints()
+  //     .await
+  // {
+  //   return Err(serde_json::json!({ "code": "FINGERPRINT_REQUIRES_PRO" }).to_string());
+  // }
 
   if !crate::cloud_auth::CLOUD_AUTH
     .is_fingerprint_os_allowed(config.os.as_deref())
