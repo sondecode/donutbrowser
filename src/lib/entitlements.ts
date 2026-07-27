@@ -11,8 +11,8 @@ interface Capabilities {
 
 const NONE: Entitlements = {
   active: false,
-  browserAutomation: false,
-  crossOsFingerprints: false,
+  browserAutomation: true,
+  crossOsFingerprints: true,
   cloudBackup: false,
   teamCollaboration: false,
   profileLimit: 0,
@@ -23,7 +23,7 @@ const NONE: Entitlements = {
 // sync — a new plan must be declared here too, or it falls back to DEFAULT_PAID.
 const PLAN_CAPABILITIES: Record<string, Capabilities> = {
   starter: {
-    browserAutomation: false,
+    browserAutomation: true,
     crossOsFingerprints: true,
     cloudBackup: true,
     teamCollaboration: false,

@@ -56,7 +56,6 @@ import { useSyncSessions } from "@/hooks/use-sync-session";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
 import { useWayfernTerms } from "@/hooks/use-wayfern-terms";
 import { translateBackendError } from "@/lib/backend-errors";
-import { getEntitlements } from "@/lib/entitlements";
 import {
   ONBOARDING_TOUR_FINISHED_EVENT,
   setOnboardingActive,
@@ -215,11 +214,11 @@ export default function Home() {
 
   // Cloud auth for cross-OS unlock
   const { user: cloudUser } = useCloudAuth();
-  const crossOsUnlocked = getEntitlements(cloudUser).crossOsFingerprints;
+  const crossOsUnlocked = true;
   // Bulk run/stop is a paid (browser automation) feature, matching the
   // /v1/profiles/batch/run API gate. Free/starter users see the bulk Run/Stop
   // actions disabled with a Pro badge.
-  const automationUnlocked = getEntitlements(cloudUser).browserAutomation;
+  const automationUnlocked = true;
 
   const [selfHostedSyncConfigured, setSelfHostedSyncConfigured] =
     useState(false);

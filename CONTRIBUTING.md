@@ -39,6 +39,29 @@ pnpm install
 pnpm tauri dev
 ```
 
+## Building a macOS App
+
+To create a local macOS `.app` bundle and `.dmg` installer, install the manual setup requirements above, then run:
+
+```bash
+pnpm build
+pnpm tauri build --bundles app,dmg
+```
+
+The generated artifacts are written to:
+
+```text
+src-tauri/target/release/bundle/macos/Donut.app
+src-tauri/target/release/bundle/dmg/Donut_<version>_<arch>.dmg
+```
+
+The architecture suffix depends on the Rust target used for the build:
+
+- `x64` / `x86_64-apple-darwin`: Intel macOS build
+- `aarch64` / `aarch64-apple-darwin`: Apple Silicon build
+
+Local builds are unsigned unless you configure a macOS signing identity in `src-tauri/tauri.conf.json`. Unsigned apps may show Gatekeeper warnings after being downloaded or shared; for public distribution, sign and notarize the app with Apple.
+
 ## Quality Checks
 
 Run before every commit:

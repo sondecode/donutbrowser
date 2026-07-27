@@ -188,6 +188,65 @@ impl WayfernManager {
       .or_else(|| pair("screenWidth", "screenHeight"))
   }
 
+  fn configure_webrtc_preferences(
+    profile_path: &str,
+    block_webrtc: bool,
+  ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let default_dir = PathBuf::from(profile_path).join("Default");
+    std::fs::create_dir_all(&default_dir)?;
+    let prefs_path = default_dir.join("Preferences");
+    let mut prefs: serde_json::Value = if prefs_path.exists() {
+      let raw = std::fs::read_to_string(&prefs_path)?;
+      serde_json::from_str(&raw).unwrap_or_else(|_| json!({}))
+    } else {
+      json!({})
+    };
+
+    if !prefs.is_object() {
+      prefs = json!({});
+    }
+    let root = prefs.as_object_mut().expect("prefs is an object");
+    let webrtc = root
+      .entry("webrtc".to_string())
+      .or_insert_with(|| json!({}));
+    if !webrtc.is_object() {
+      *webrtc = json!({});
+    }
+    if let Some(obj) = webrtc.as_object_mut() {
+      obj.insert(
+        "ip_handling_policy".to_string(),
+        json!("disable_non_proxied_udp"),
+      );
+      obj.insert("multiple_routes_enabled".to_string(), json!(false));
+      obj.insert("nonproxied_udp_enabled".to_string(), json!(false));
+    }
+
+    if block_webrtc {
+      let profile = root
+        .entry("profile".to_string())
+        .or_insert_with(|| json!({}));
+      if !profile.is_object() {
+        *profile = json!({});
+      }
+      if let Some(profile_obj) = profile.as_object_mut() {
+        let content_settings = profile_obj
+          .entry("default_content_setting_values".to_string())
+          .or_insert_with(|| json!({}));
+        if !content_settings.is_object() {
+          *content_settings = json!({});
+        }
+        if let Some(settings_obj) = content_settings.as_object_mut() {
+          settings_obj.insert("media_stream_camera".to_string(), json!(2));
+          settings_obj.insert("media_stream_mic".to_string(), json!(2));
+        }
+      }
+    }
+
+    let serialized = serde_json::to_vec_pretty(&prefs)?;
+    std::fs::write(&prefs_path, serialized)?;
+    Ok(())
+  }
+
   async fn wait_for_cdp_ready(
     &self,
     port: u16,
@@ -353,12 +412,6 @@ impl WayfernManager {
           }
           obj.insert("latitude".to_string(), json!(geo.latitude));
           obj.insert("longitude".to_string(), json!(geo.longitude));
-          let locale_str = geo.locale.as_string();
-          obj.insert("language".to_string(), json!(&locale_str));
-          obj.insert(
-            "languages".to_string(),
-            json!([&locale_str, &geo.locale.language]),
-          );
         }
         log::info!(
           "Applied geolocation to Wayfern fingerprint: {} ({})",
@@ -465,8 +518,6 @@ impl WayfernManager {
       "windowInnerHeight": inner_height,
       "screenX": 0,
       "screenY": 0,
-      "language": "en-US",
-      "languages": ["en-US", "en"],
       "timezone": "America/New_York",
       "timezoneOffset": 300,
       "accuracy": 100,
@@ -521,9 +572,6 @@ impl WayfernManager {
       let mut params = json!({ "userAgent": user_agent });
       if let Some(platform) = read_str("platform") {
         params["platform"] = json!(platform);
-      }
-      if let Some(language) = read_str("language") {
-        params["acceptLanguage"] = json!(language);
       }
       if let Err(e) = self
         .send_cdp_command(ws_url, "Network.setUserAgentOverride", params)
@@ -771,15 +819,7 @@ impl WayfernManager {
         "windows"
       });
 
-    // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
-    let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-    let mut refresh_params = json!({ "operatingSystem": os });
-    if let Some(ref token) = wayfern_token {
-      refresh_params
-        .as_object_mut()
-        .unwrap()
-        .insert("wayfernToken".to_string(), json!(token));
-    }
+    let refresh_params = json!({ "operatingSystem": os });
 
     let refresh_result = self
       .send_cdp_command(&ws_url, "Wayfern.refreshFingerprint", refresh_params)
@@ -887,12 +927,11 @@ impl WayfernManager {
     // Log timezone/geolocation fields specifically for debugging
     if let Some(obj) = fingerprint.as_object() {
       log::info!(
-        "Generated fingerprint - timezone: {:?}, timezoneOffset: {:?}, latitude: {:?}, longitude: {:?}, language: {:?}",
+        "Generated fingerprint - timezone: {:?}, timezoneOffset: {:?}, latitude: {:?}, longitude: {:?}",
         obj.get("timezone"),
         obj.get("timezoneOffset"),
         obj.get("latitude"),
-        obj.get("longitude"),
-        obj.get("language")
+        obj.get("longitude")
       );
     }
 
@@ -1033,6 +1072,8 @@ impl WayfernManager {
       "--disable-features=DialMediaRouteProvider,DnsOverHttps,AsyncDns,Prefetch,PrefetchProxy,SpeculationRulesPrefetchFuture,NoStatePrefetch".to_string(),
       "--use-mock-keychain".to_string(),
       "--password-store=basic".to_string(),
+      "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string(),
+      "--enforce-webrtc-ip-permission-check".to_string(),
     ];
 
     if headless {
@@ -1068,6 +1109,15 @@ impl WayfernManager {
 
     if !extension_paths.is_empty() {
       args.push(format!("--load-extension={}", extension_paths.join(",")));
+    }
+
+    if let Err(e) =
+      Self::configure_webrtc_preferences(profile_path, config.block_webrtc.unwrap_or(false))
+    {
+      log::warn!(
+        "Failed to configure WebRTC preferences for profile {}: {e}",
+        profile.name
+      );
     }
 
     // Per-profile window label + distinct frame color so concurrent profile
@@ -1188,15 +1238,7 @@ impl WayfernManager {
       }
 
       // Denormalize fingerprint for Wayfern CDP (convert arrays/objects to JSON strings)
-      let mut fingerprint_for_cdp = Self::denormalize_fingerprint(fingerprint);
-
-      // Normalize languages: if it's a comma-separated string, convert to array
-      if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
-        if let Some(serde_json::Value::String(s)) = obj.get("languages").cloned() {
-          let arr: Vec<&str> = s.split(',').map(|l| l.trim()).collect();
-          obj.insert("languages".to_string(), json!(arr));
-        }
-      }
+      let fingerprint_for_cdp = Self::denormalize_fingerprint(fingerprint);
 
       log::info!(
         "Fingerprint prepared for CDP command, fields: {:?}",
@@ -1208,13 +1250,11 @@ impl WayfernManager {
       // Log timezone and geolocation fields specifically for debugging
       if let Some(obj) = fingerprint_for_cdp.as_object() {
         log::info!(
-          "Timezone/Geolocation fields - timezone: {:?}, timezoneOffset: {:?}, latitude: {:?}, longitude: {:?}, language: {:?}, languages: {:?}",
+          "Timezone/Geolocation fields - timezone: {:?}, timezoneOffset: {:?}, latitude: {:?}, longitude: {:?}",
           obj.get("timezone"),
           obj.get("timezoneOffset"),
           obj.get("latitude"),
-          obj.get("longitude"),
-          obj.get("language"),
-          obj.get("languages")
+          obj.get("longitude")
         );
       }
 
