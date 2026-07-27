@@ -89,6 +89,39 @@ fn get_or_create_macos_ramdisk() -> Result<PathBuf, String> {
   Ok(mount_point)
 }
 
+#[cfg(target_os = "macos")]
+pub fn cleanup_macos_ramdisk() {
+  let mount_point = PathBuf::from("/Volumes/DonutEphemeral");
+  if !mount_point.exists() {
+    return;
+  }
+
+  let output = std::process::Command::new("hdiutil")
+    .args([
+      "detach",
+      mount_point.to_str().unwrap_or("/Volumes/DonutEphemeral"),
+    ])
+    .output();
+
+  match output {
+    Ok(out) if out.status.success() => {
+      log::info!("Detached macOS RAM disk at {}", mount_point.display());
+    }
+    Ok(out) => {
+      log::warn!(
+        "Failed to detach macOS RAM disk: {}",
+        String::from_utf8_lossy(&out.stderr)
+      );
+    }
+    Err(e) => {
+      log::warn!("Failed to run hdiutil detach for macOS RAM disk: {e}");
+    }
+  }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn cleanup_macos_ramdisk() {}
+
 #[cfg(target_os = "windows")]
 fn get_or_create_windows_ramdisk() -> Result<PathBuf, String> {
   // Check if a previous RAM disk with our directory already exists

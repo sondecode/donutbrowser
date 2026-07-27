@@ -34,6 +34,115 @@ impl BrowserRunner {
     crate::app_dirs::binaries_dir()
   }
 
+  fn us_region_timezone(region: &str) -> Option<&'static str> {
+    let normalized = region.trim().to_ascii_uppercase().replace([' ', '_'], "-");
+    match normalized.as_str() {
+      "CT"
+      | "DC"
+      | "DE"
+      | "FL"
+      | "GA"
+      | "MA"
+      | "MD"
+      | "ME"
+      | "MI"
+      | "NC"
+      | "NH"
+      | "NJ"
+      | "NY"
+      | "OH"
+      | "PA"
+      | "RI"
+      | "SC"
+      | "VT"
+      | "VA"
+      | "WV"
+      | "CONNECTICUT"
+      | "DISTRICT-OF-COLUMBIA"
+      | "DELAWARE"
+      | "FLORIDA"
+      | "GEORGIA"
+      | "MASSACHUSETTS"
+      | "MARYLAND"
+      | "MAINE"
+      | "MICHIGAN"
+      | "NORTH-CAROLINA"
+      | "NEW-HAMPSHIRE"
+      | "NEW-JERSEY"
+      | "NEW-YORK"
+      | "OHIO"
+      | "PENNSYLVANIA"
+      | "RHODE-ISLAND"
+      | "SOUTH-CAROLINA"
+      | "VERMONT"
+      | "VIRGINIA"
+      | "WEST-VIRGINIA" => Some("America/New_York"),
+      "AL" | "AR" | "IL" | "IA" | "LA" | "MN" | "MS" | "MO" | "OK" | "WI" | "ALABAMA"
+      | "ARKANSAS" | "ILLINOIS" | "IOWA" | "LOUISIANA" | "MINNESOTA" | "MISSISSIPPI"
+      | "MISSOURI" | "OKLAHOMA" | "WISCONSIN" => Some("America/Chicago"),
+      "AZ" | "CO" | "ID" | "MT" | "NM" | "UT" | "WY" | "ARIZONA" | "COLORADO" | "IDAHO"
+      | "MONTANA" | "NEW-MEXICO" | "UTAH" | "WYOMING" => Some("America/Denver"),
+      "CA" | "NV" | "OR" | "WA" | "CALIFORNIA" | "NEVADA" | "OREGON" | "WASHINGTON" => {
+        Some("America/Los_Angeles")
+      }
+      "AK" | "ALASKA" => Some("America/Anchorage"),
+      "HI" | "HAWAII" => Some("Pacific/Honolulu"),
+      _ => None,
+    }
+  }
+
+  fn proxy_timezone_hint(profile: &BrowserProfile) -> Option<&'static str> {
+    let proxy_id = profile.proxy_id.as_ref()?;
+    let proxy = PROXY_MANAGER
+      .get_stored_proxies()
+      .into_iter()
+      .find(|proxy| proxy.id == *proxy_id)?;
+
+    let country = proxy.geo_country.as_deref()?.to_ascii_uppercase();
+    if country != "US" && country != "USA" && country != "UNITED_STATES" {
+      return None;
+    }
+
+    if let Some(city) = proxy.geo_city.as_deref() {
+      let city = city.to_ascii_lowercase();
+      if city.contains("boston") {
+        return Some("America/New_York");
+      }
+      if city.contains("chicago") {
+        return Some("America/Chicago");
+      }
+      if city.contains("denver") {
+        return Some("America/Denver");
+      }
+      if city.contains("los angeles") || city.contains("san francisco") || city.contains("seattle")
+      {
+        return Some("America/Los_Angeles");
+      }
+    }
+
+    proxy
+      .effective_region()
+      .and_then(|region| Self::us_region_timezone(region))
+  }
+
+  fn override_fingerprint_timezone(fingerprint_json: &str, timezone: &str) -> Option<String> {
+    let mut fp: serde_json::Value = serde_json::from_str(fingerprint_json).ok()?;
+    let obj = fp.as_object_mut()?;
+    obj.insert("timezone".to_string(), serde_json::json!(timezone));
+
+    if let Ok(tz) = timezone.parse::<chrono_tz::Tz>() {
+      use chrono::Offset;
+      let now = chrono::Utc::now().with_timezone(&tz);
+      let offset_seconds = now.offset().fix().local_minus_utc();
+      obj.insert(
+        "timezoneOffset".to_string(),
+        serde_json::json!(-(offset_seconds / 60)),
+      );
+    }
+
+    serde_json::to_string(&fp).ok()
+  }
+
   /// Resolve the DNS blocklist level to a cached file path.
   /// If a level is set but the cache is missing, fetches on demand (blocks until done).
   async fn resolve_blocklist_file(
@@ -305,6 +414,10 @@ impl BrowserRunner {
           new_fingerprint.len()
         );
 
+        let new_fingerprint = Self::proxy_timezone_hint(profile)
+          .and_then(|timezone| Self::override_fingerprint_timezone(&new_fingerprint, timezone))
+          .unwrap_or(new_fingerprint);
+
         // Update the config with the new fingerprint for launching
         wayfern_config.fingerprint = Some(new_fingerprint.clone());
 
@@ -361,6 +474,10 @@ impl BrowserRunner {
             .await
             {
               Some(refreshed) => {
+                let refreshed = Self::proxy_timezone_hint(profile)
+                  .and_then(|timezone| Self::override_fingerprint_timezone(&refreshed, timezone))
+                  .unwrap_or(refreshed);
+
                 wayfern_config.fingerprint = Some(refreshed.clone());
                 wayfern_config.geo_proxy_signature = Some(current_geo_sig.clone());
                 let mut cfg = updated_profile.wayfern_config.clone().unwrap_or_default();

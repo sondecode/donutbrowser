@@ -1,7 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LoadingButton } from "@/components/loading-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -12,12 +12,21 @@ import { ProBadge } from "@/components/ui/pro-badge";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  applyHardwarePreset,
+  HARDWARE_PRESET_GROUPS,
+  HARDWARE_PRESETS,
+  type HardwarePresetId,
+  matchHardwarePreset,
+} from "@/lib/hardware-presets";
 import type {
   WayfernConfig,
   WayfernFingerprintConfig,
@@ -77,6 +86,11 @@ export function WayfernConfigForm({
     useState<WayfernFingerprintConfig>({});
   const [currentOS] = useState<WayfernOS>(getCurrentOS);
   const [isGeneratingFingerprint, setIsGeneratingFingerprint] = useState(false);
+  const selectedOS = config.os || currentOS;
+  const selectedHardwarePreset = useMemo(
+    () => matchHardwarePreset(fingerprintConfig, selectedOS),
+    [fingerprintConfig, selectedOS],
+  );
 
   const handleGenerateFingerprint = async () => {
     if (!profileVersion) return;
@@ -95,8 +109,6 @@ export function WayfernConfigForm({
       setIsGeneratingFingerprint(false);
     }
   };
-
-  const selectedOS = config.os || currentOS;
 
   useEffect(() => {
     if (isCreating && typeof window !== "undefined") {
@@ -157,6 +169,16 @@ export function WayfernConfigForm({
     } catch (error) {
       console.error("Failed to serialize fingerprint config:", error);
     }
+  };
+
+  const handleHardwarePresetChange = (presetId: HardwarePresetId) => {
+    const preset = HARDWARE_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+
+    const mergedFingerprint = applyHardwarePreset(fingerprintConfig, presetId);
+    setFingerprintConfig(mergedFingerprint);
+    onConfigChange("os", preset.os);
+    onConfigChange("fingerprint", JSON.stringify(mergedFingerprint));
   };
 
   const isAutoLocationEnabled = config.geoip !== false;
@@ -287,6 +309,39 @@ export function WayfernConfigForm({
           disabled={isEditingDisabled || limitedMode}
           className="space-y-6"
         >
+          {/* Hardware Presets */}
+          <div className="space-y-3">
+            <Label htmlFor="hardware-preset">
+              {t("fingerprint.hardwarePresetLabel")}
+            </Label>
+            <Select
+              value={selectedHardwarePreset ?? ""}
+              onValueChange={(value) => {
+                handleHardwarePresetChange(value as HardwarePresetId);
+              }}
+            >
+              <SelectTrigger id="hardware-preset">
+                <SelectValue
+                  placeholder={t("fingerprint.hardwarePresetPlaceholder")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {HARDWARE_PRESET_GROUPS.map((group) => (
+                  <SelectGroup key={group.id}>
+                    <SelectLabel>{t(group.labelKey)}</SelectLabel>
+                    {HARDWARE_PRESETS.filter(
+                      (preset) => preset.group === group.id,
+                    ).map((preset) => (
+                      <SelectItem key={preset.id} value={preset.id}>
+                        {t(preset.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* User Agent and Platform */}
           <div className="space-y-3">
             <Label>{t("fingerprint.userAgentAndPlatform")}</Label>

@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   LuArrowRight,
@@ -11,8 +11,6 @@ import {
   LuGithub,
   LuGlobe,
   LuHeart,
-  LuLoaderCircle,
-  LuMic,
   LuNetwork,
   LuShieldCheck,
   LuTerminal,
@@ -21,9 +19,8 @@ import {
 import { Logo } from "@/components/icons/logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { usePermissions } from "@/hooks/use-permissions";
 
-type WelcomeStep = "intro" | "license" | "permissions" | "setup";
+type WelcomeStep = "intro" | "license" | "setup";
 
 const panelTransition = {
   type: "spring",
@@ -59,13 +56,12 @@ export function WelcomeDialog({
    * Whether this user still needs the browser-download + profile-creation flow.
    * False when they already have a profile — then the welcome and commercial-use
    * steps still show, but "continue" finishes onboarding instead of proceeding
-   * to permissions/download.
+   * to setup.
    */
   needsSetup: boolean;
   onComplete: () => void;
 }) {
   const { t } = useTranslation();
-  const { requestPermission } = usePermissions();
   const [step, setStep] = useState<WelcomeStep>("intro");
   // Where the "skip" / "continue" affordances go: into the setup flow when a
   // browser/profile is still needed, otherwise straight to completion.
@@ -73,21 +69,6 @@ export function WelcomeDialog({
     if (needsSetup) setStep("setup");
     else onComplete();
   };
-  const [requesting, setRequesting] = useState(false);
-
-  const requestPermissions = useCallback(async () => {
-    setRequesting(true);
-    try {
-      await requestPermission("microphone");
-      await requestPermission("camera");
-    } catch (err) {
-      console.error("Permission request failed:", err);
-    } finally {
-      setRequesting(false);
-      setStep("setup");
-    }
-  }, [requestPermission]);
-
   return (
     <Dialog open={isOpen} onOpenChange={() => {}}>
       <DialogContent
@@ -232,61 +213,12 @@ export function WelcomeDialog({
                   size="sm"
                   className="gap-1.5"
                   onClick={() => {
-                    if (needsSetup) setStep("permissions");
+                    if (needsSetup) setStep("setup");
                     else onComplete();
                   }}
                 >
                   {t("welcome.license.agree")}
                   <LuArrowRight className="size-4 shrink-0" />
-                </Button>
-              </div>
-            </motion.div>
-          )}
-
-          {step === "permissions" && (
-            <motion.div
-              key="permissions"
-              variants={panelVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={panelTransition}
-              className="flex flex-col gap-7"
-            >
-              <div className="flex flex-col gap-2 text-center">
-                <h2 className="flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight text-balance">
-                  <LuMic className="size-5 shrink-0" />
-                  {t("welcome.permissions.title")}
-                </h2>
-                <p className="mx-auto max-w-[55ch] text-sm/6 text-pretty text-muted-foreground">
-                  {t("welcome.permissions.desc")}
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  disabled={requesting}
-                  onClick={advanceToSetup}
-                >
-                  {t("welcome.permissions.skip")}
-                </Button>
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={requesting}
-                  onClick={() => {
-                    void requestPermissions();
-                  }}
-                >
-                  {requesting && (
-                    <LuLoaderCircle className="size-4 shrink-0 animate-spin" />
-                  )}
-                  {requesting
-                    ? t("welcome.permissions.requesting")
-                    : t("welcome.permissions.grant")}
                 </Button>
               </div>
             </motion.div>

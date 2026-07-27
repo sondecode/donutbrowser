@@ -24,7 +24,6 @@ import HomeHeader from "@/components/home-header";
 import { ImportProfileDialog } from "@/components/import-profile-dialog";
 import { IntegrationsDialog } from "@/components/integrations-dialog";
 import { ONBOARDING_TOUR } from "@/components/onboarding-provider";
-import { PermissionDialog } from "@/components/permission-dialog";
 import { ProfilesDataTable } from "@/components/profile-data-table";
 import {
   type PasswordDialogMode,
@@ -48,8 +47,6 @@ import { useAppUpdateNotifications } from "@/hooks/use-app-update-notifications"
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { useCommercialTrial } from "@/hooks/use-commercial-trial";
 import { useGroupEvents } from "@/hooks/use-group-events";
-import type { PermissionType } from "@/hooks/use-permissions";
-import { usePermissions } from "@/hooks/use-permissions";
 import { useProfileEvents } from "@/hooks/use-profile-events";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useSyncSessions } from "@/hooks/use-sync-session";
@@ -102,12 +99,7 @@ export default function Home() {
   const onboardingHandledRef = useRef(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [thankYouOpen, setThankYouOpen] = useState(false);
-  // null = onboarding decision pending; false = not a first-run onboarding (run
-  // the normal permission checks); true = first-run onboarding, so the welcome
-  // flow drives permissions and the standalone permission dialog is suppressed.
-  const [firstRunOnboarding, setFirstRunOnboarding] = useState<boolean | null>(
-    null,
-  );
+  const [, setFirstRunOnboarding] = useState<boolean | null>(null);
 
   // Welcome flow finished. Existing-profile users are done after the welcome +
   // commercial-use steps; users with no profile yet continue into the in-app
@@ -304,9 +296,6 @@ export default function Home() {
   const windowResizeWarningResolver = useRef<
     ((proceed: boolean) => void) | null
   >(null);
-  const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
-  const [currentPermissionType, setCurrentPermissionType] =
-    useState<PermissionType>("microphone");
   const [showBulkDeleteConfirmation, setShowBulkDeleteConfirmation] =
     useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -321,9 +310,6 @@ export default function Home() {
   // info dialog. ProfilesDataTable consumes it through controlled props.
   const [profileInfoDialog, setProfileInfoDialog] =
     useState<BrowserProfile | null>(null);
-  const { isMicrophoneAccessGranted, isCameraAccessGranted, isInitialized } =
-    usePermissions();
-
   const handleSelectGroup = useCallback((groupId: string) => {
     setSelectedGroupId(groupId);
     setSelectedProfiles([]);
@@ -599,53 +585,6 @@ export default function Home() {
       showErrorToast(proxiesError);
     }
   }, [proxiesError]);
-
-  const checkAllPermissions = useCallback(() => {
-    try {
-      // Wait for permissions to be initialized before checking
-      if (!isInitialized) {
-        return;
-      }
-
-      // Check if any permissions are not granted - prioritize missing permissions
-      if (!isMicrophoneAccessGranted) {
-        setCurrentPermissionType("microphone");
-        setPermissionDialogOpen(true);
-      } else if (!isCameraAccessGranted) {
-        setCurrentPermissionType("camera");
-        setPermissionDialogOpen(true);
-      }
-    } catch (error) {
-      console.error("Failed to check permissions:", error);
-    }
-  }, [isMicrophoneAccessGranted, isCameraAccessGranted, isInitialized]);
-
-  const checkNextPermission = useCallback(
-    (justGranted?: PermissionType) => {
-      try {
-        // Treat the just-granted permission as already granted even if our
-        // own usePermissions instance hasn't observed it yet — it polls on a
-        // 5 s cadence and would otherwise leave the dialog stuck on the
-        // permission the user just successfully granted.
-        const micGranted =
-          isMicrophoneAccessGranted || justGranted === "microphone";
-        const camGranted = isCameraAccessGranted || justGranted === "camera";
-
-        if (!micGranted) {
-          setCurrentPermissionType("microphone");
-          setPermissionDialogOpen(true);
-        } else if (!camGranted) {
-          setCurrentPermissionType("camera");
-          setPermissionDialogOpen(true);
-        } else {
-          setPermissionDialogOpen(false);
-        }
-      } catch (error) {
-        console.error("Failed to check next permission:", error);
-      }
-    },
-    [isMicrophoneAccessGranted, isCameraAccessGranted],
-  );
 
   const listenForUrlEvents = useCallback(async () => {
     // Collect every listener we register so that — whether setup completes or
@@ -1416,15 +1355,6 @@ export default function Home() {
     };
   }, [t]);
 
-  // Check permissions when they are initialized. During first-run onboarding
-  // the welcome flow requests permissions, so the standalone dialog is deferred
-  // until we know this isn't a first-run onboarding.
-  useEffect(() => {
-    if (isInitialized && firstRunOnboarding === false) {
-      checkAllPermissions();
-    }
-  }, [isInitialized, firstRunOnboarding, checkAllPermissions]);
-
   // Check self-hosted sync config on mount and when cloud user changes
   useEffect(() => {
     void checkSelfHostedSync();
@@ -1686,15 +1616,6 @@ export default function Home() {
           runningProfiles={runningProfiles}
         />
       ))}
-
-      <PermissionDialog
-        isOpen={permissionDialogOpen}
-        onClose={() => {
-          setPermissionDialogOpen(false);
-        }}
-        permissionType={currentPermissionType}
-        onPermissionGranted={checkNextPermission}
-      />
 
       <WelcomeDialog
         isOpen={welcomeOpen}

@@ -121,6 +121,15 @@ impl WayfernManager {
     crate::app_dirs::binaries_dir()
   }
 
+  fn fingerprint_timezone(fingerprint_json: Option<&str>) -> Option<String> {
+    let json = fingerprint_json?;
+    let parsed: serde_json::Value = serde_json::from_str(json).ok()?;
+    let fp = parsed.get("fingerprint").unwrap_or(&parsed);
+    fp.get("timezone")
+      .and_then(|v| v.as_str())
+      .map(|s| s.to_string())
+  }
+
   async fn find_free_port() -> Result<u16, Box<dyn std::error::Error + Send + Sync>> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
@@ -1175,6 +1184,9 @@ impl WayfernManager {
     }
 
     let mut command = TokioCommand::new(&executable_path);
+    if let Some(timezone) = Self::fingerprint_timezone(config.fingerprint.as_deref()) {
+      command.env("TZ", timezone);
+    }
     command
       .args(&args)
       .stdin(Stdio::null())
@@ -1308,6 +1320,15 @@ impl WayfernManager {
           }
         }
       }
+
+      for target in &page_targets {
+        if let Some(ws_url) = &target.websocket_debugger_url {
+          self
+            .apply_standard_chromium_overrides(ws_url, &fingerprint_for_cdp)
+            .await;
+          used_standard_cdp_overrides = true;
+        }
+      }
     } else {
       log::warn!("No fingerprint found in config, browser will use default fingerprint");
     }
@@ -1323,6 +1344,13 @@ impl WayfernManager {
             .await
           {
             log::error!("Failed to navigate to URL: {e}");
+          }
+          if let Some(fingerprint_json) = &config.fingerprint {
+            if let Ok(fingerprint) = serde_json::from_str::<serde_json::Value>(fingerprint_json) {
+              self
+                .apply_standard_chromium_overrides(ws_url, &fingerprint)
+                .await;
+            }
           }
         }
       }

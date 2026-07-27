@@ -2385,14 +2385,20 @@ pub fn run() {
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|_app_handle, _event| {
-      #[cfg(target_os = "macos")]
-      if let tauri::RunEvent::Reopen { .. } = _event {
-        if let Some(window) = _app_handle.get_webview_window("main") {
-          let _ = window.show();
-          let _ = window.set_focus();
-          let _ = window.unminimize();
+    .run(|_app_handle, event| {
+      match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => {
+          if let Some(window) = _app_handle.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.unminimize();
+          }
         }
+        tauri::RunEvent::Exit => {
+          crate::ephemeral_dirs::cleanup_macos_ramdisk();
+        }
+        _ => {}
       }
     });
 }
