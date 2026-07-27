@@ -10,12 +10,12 @@ interface Capabilities {
 }
 
 const NONE: Entitlements = {
-  active: false,
+  active: true,
   browserAutomation: true,
   crossOsFingerprints: true,
   cloudBackup: false,
   teamCollaboration: false,
-  profileLimit: 0,
+  profileLimit: 100,
   requestsPerHour: 0,
 };
 

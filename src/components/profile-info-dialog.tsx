@@ -135,6 +135,96 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function EditableGroupCard({
+  profile,
+  isDisabled,
+}: {
+  profile: BrowserProfile;
+  isDisabled: boolean;
+}) {
+  const { t } = useTranslation();
+  const [groups, setGroups] = React.useState<ProfileGroup[]>([]);
+  const [groupId, setGroupId] = React.useState<string | null>(
+    profile.group_id ?? null,
+  );
+
+  React.useEffect(() => {
+    setGroupId(profile.group_id ?? null);
+  }, [profile.group_id]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const groupList = await invoke<ProfileGroup[]>("get_profile_groups");
+        if (mounted) setGroups(groupList);
+      } catch {
+        if (mounted) setGroups([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleGroupChange = React.useCallback(
+    async (value: string) => {
+      const nextGroupId = value === "__none__" ? null : value;
+      try {
+        await invoke("assign_profiles_to_group", {
+          profileIds: [profile.id],
+          groupId: nextGroupId,
+        });
+        setGroupId(nextGroupId);
+      } catch (err) {
+        showErrorToast(translateBackendError(t, err));
+      }
+    },
+    [profile.id, t],
+  );
+
+  const groupName =
+    groupId !== null
+      ? (groups.find((group) => group.id === groupId)?.name ?? null)
+      : null;
+
+  return (
+    <div className="rounded-md border bg-muted/50 px-3 py-2.5">
+      <p className="text-xs text-muted-foreground">
+        {t("profileInfo.fields.group")}
+      </p>
+      <div className="mt-1">
+        <Select
+          value={groupId ?? "__none__"}
+          disabled={isDisabled}
+          onValueChange={(value) => {
+            void handleGroupChange(value);
+          }}
+        >
+          <SelectTrigger className="h-7 text-xs">
+            <SelectValue placeholder={t("profileInfo.values.none")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">
+              {t("profileInfo.values.none")}
+            </SelectItem>
+            {groups.map((group) => (
+              <SelectItem key={group.id} value={group.id}>
+                {group.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {groupName && (
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">
+          {groupName}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
@@ -282,7 +372,7 @@ export function ProfileInfoDialog({
   onSetPassword,
   onChangePassword,
   onRemovePassword,
-  crossOsUnlocked = false,
+  crossOsUnlocked = true,
   isRunning = false,
   isDisabled = false,
   isCrossOs = false,
@@ -290,26 +380,9 @@ export function ProfileInfoDialog({
 }: ProfileInfoDialogProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = React.useState(false);
-  const [groupName, setGroupName] = React.useState<string | null>(null);
   const [extensionGroupName, setExtensionGroupName] = React.useState<
     string | null
   >(null);
-
-  React.useEffect(() => {
-    if (!isOpen || !profile?.group_id) {
-      setGroupName(null);
-      return;
-    }
-    void (async () => {
-      try {
-        const groups = await invoke<ProfileGroup[]>("get_groups");
-        const group = groups.find((g) => g.id === profile.group_id);
-        setGroupName(group?.name ?? null);
-      } catch {
-        setGroupName(null);
-      }
-    })();
-  }, [isOpen, profile?.group_id]);
 
   React.useEffect(() => {
     if (!isOpen || !profile?.extension_group_id) {
@@ -337,6 +410,23 @@ export function ProfileInfoDialog({
 
   if (!profile) return null;
 
+  const handleCopyId = async () => {
+    try {
+      await navigator.clipboard.writeText(profile.id);
+      setCopied(true);
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleAction = (action: () => void) => {
+    onClose();
+    action();
+  };
+
   const ProfileIcon = getProfileIcon(profile);
   const isWayfern = isChromiumProfileBrowser(profile.browser);
   const isDeleteDisabled = isRunning;
@@ -355,23 +445,6 @@ export function ProfileInfoDialog({
 
   const syncStatus = syncStatuses[profile.id];
   const syncMode = profile.sync_mode ?? "Disabled";
-
-  const handleCopyId = async () => {
-    try {
-      await navigator.clipboard.writeText(profile.id);
-      setCopied(true);
-      setTimeout(() => {
-        setCopied(false);
-      }, 2000);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleAction = (action: () => void) => {
-    onClose();
-    action();
-  };
 
   const hasTags = profile.tags && profile.tags.length > 0;
   const hasNote = !!profile.note;
@@ -586,7 +659,6 @@ export function ProfileInfoDialog({
           isRunning={isRunning}
           isDisabled={isDisabled}
           networkLabel={networkLabel}
-          groupName={groupName}
           extensionGroupName={extensionGroupName}
           syncMode={syncMode}
           syncStatus={syncStatus}
@@ -613,7 +685,6 @@ interface ProfileInfoLayoutProps {
   isRunning: boolean;
   isDisabled: boolean;
   networkLabel: string;
-  groupName: string | null;
   extensionGroupName: string | null;
   syncMode: string;
   syncStatus: { status: string; error?: string } | undefined;
@@ -656,7 +727,6 @@ function ProfileInfoLayout({
   isRunning,
   isDisabled,
   networkLabel,
-  groupName,
   extensionGroupName,
   syncMode,
   syncStatus,
@@ -919,10 +989,7 @@ function ProfileInfoLayout({
 
               {/* 2x2 cards */}
               <div className="grid grid-cols-2 gap-2">
-                <InfoCard
-                  label={t("profileInfo.fields.group")}
-                  value={groupName ?? t("profileInfo.values.none")}
-                />
+                <EditableGroupCard profile={profile} isDisabled={isDisabled} />
                 <InfoCard
                   label={t("profileInfo.fields.proxyVpn")}
                   value={networkLabel}

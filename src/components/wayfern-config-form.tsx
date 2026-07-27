@@ -191,6 +191,15 @@ export function WayfernConfigForm({
     }
   };
 
+  const handleManualLocationChange = (
+    key: keyof WayfernFingerprintConfig,
+    value: unknown,
+  ) => {
+    onConfigChange("geoip", false);
+    onConfigChange("geo_proxy_signature", undefined);
+    updateFingerprintConfig(key, value);
+  };
+
   const isEditingDisabled = isFingerprintEditingDisabled(config) || readOnly;
 
   const renderAdvancedForm = () => (
@@ -820,7 +829,7 @@ export function WayfernConfigForm({
                   id="timezone"
                   value={fingerprintConfig.timezone ?? ""}
                   onChange={(e) => {
-                    updateFingerprintConfig(
+                    handleManualLocationChange(
                       "timezone",
                       e.target.value || undefined,
                     );
@@ -839,7 +848,7 @@ export function WayfernConfigForm({
                   type="number"
                   value={fingerprintConfig.timezoneOffset ?? ""}
                   onChange={(e) => {
-                    updateFingerprintConfig(
+                    handleManualLocationChange(
                       "timezoneOffset",
                       e.target.value ? parseInt(e.target.value, 10) : undefined,
                     );
@@ -857,7 +866,7 @@ export function WayfernConfigForm({
                   step="any"
                   value={fingerprintConfig.latitude ?? ""}
                   onChange={(e) => {
-                    updateFingerprintConfig(
+                    handleManualLocationChange(
                       "latitude",
                       e.target.value ? parseFloat(e.target.value) : undefined,
                     );
@@ -875,7 +884,7 @@ export function WayfernConfigForm({
                   step="any"
                   value={fingerprintConfig.longitude ?? ""}
                   onChange={(e) => {
-                    updateFingerprintConfig(
+                    handleManualLocationChange(
                       "longitude",
                       e.target.value ? parseFloat(e.target.value) : undefined,
                     );
@@ -892,7 +901,7 @@ export function WayfernConfigForm({
                   type="number"
                   value={fingerprintConfig.accuracy ?? ""}
                   onChange={(e) => {
-                    updateFingerprintConfig(
+                    handleManualLocationChange(
                       "accuracy",
                       e.target.value ? parseFloat(e.target.value) : undefined,
                     );
