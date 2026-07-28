@@ -152,7 +152,7 @@ impl McpServer {
   }
 
   /// Gate an MCP tool on a capability the caller already resolved (e.g.
-  /// `CLOUD_AUTH.can_use_browser_automation().await`). Logs the rejected gate
+  /// `true`). Logs the rejected gate
   /// with enough state for support to diagnose, without leaking secrets.
   async fn require_capability(feature: &str, allowed: bool) -> Result<(), McpError> {
     if !allowed {
@@ -1698,35 +1698,19 @@ impl McpServer {
       "list_profiles" => self.handle_list_profiles().await,
       "get_profile" => self.handle_get_profile(arguments).await,
       "run_profile" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_run_profile(arguments).await
       }
       "kill_profile" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_kill_profile(arguments).await
       }
       "batch_run_profiles" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_batch_run_profiles(arguments).await
       }
       "batch_stop_profiles" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_batch_stop_profiles(arguments).await
       }
       "create_profile" => self.handle_create_profile(arguments).await,
@@ -1795,11 +1779,7 @@ impl McpServer {
       "get_team_lock_status" => self.handle_get_team_lock_status(arguments).await,
       // Synchronizer tools
       "start_sync_session" => {
-        Self::require_capability(
-          "Synchronizer",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Synchronizer", true).await?;
         self.handle_start_sync_session(arguments).await
       }
       "stop_sync_session" => self.handle_stop_sync_session(arguments).await,
@@ -1807,83 +1787,43 @@ impl McpServer {
       "remove_sync_follower" => self.handle_remove_sync_follower(arguments).await,
       // Browser interaction tools (require paid subscription)
       "navigate" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_navigate(arguments).await
       }
       "screenshot" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_screenshot(arguments).await
       }
       "evaluate_javascript" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_evaluate_javascript(arguments).await
       }
       "click_element" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_click_element(arguments).await
       }
       "type_text" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_type_text(arguments).await
       }
       "get_page_content" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_get_page_content(arguments).await
       }
       "get_page_info" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_get_page_info(arguments).await
       }
       "get_interactive_elements" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_get_interactive_elements(arguments).await
       }
       "click_by_index" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_click_by_index(arguments).await
       }
       "type_by_index" => {
-        Self::require_capability(
-          "Browser automation",
-          CLOUD_AUTH.can_use_browser_automation().await,
-        )
-        .await?;
+        Self::require_capability("Browser automation", true).await?;
         self.handle_type_by_index(arguments).await
       }
       _ => Err(McpError {
@@ -1963,11 +1903,7 @@ impl McpServer {
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
     // Launching profiles programmatically requires the automation capability.
-    Self::require_capability(
-      "Launching a profile",
-      CLOUD_AUTH.can_use_browser_automation().await,
-    )
-    .await?;
+    Self::require_capability("Launching a profile", true).await?;
 
     let profile_id = arguments
       .get("profile_id")
@@ -2051,11 +1987,7 @@ impl McpServer {
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
     // Stopping profiles programmatically requires the automation capability.
-    Self::require_capability(
-      "Killing a profile",
-      CLOUD_AUTH.can_use_browser_automation().await,
-    )
-    .await?;
+    Self::require_capability("Killing a profile", true).await?;
 
     let profile_id = arguments
       .get("profile_id")
@@ -2119,11 +2051,7 @@ impl McpServer {
     &self,
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
-    Self::require_capability(
-      "Batch launching profiles",
-      CLOUD_AUTH.can_use_browser_automation().await,
-    )
-    .await?;
+    Self::require_capability("Batch launching profiles", true).await?;
 
     let profile_ids: Vec<String> = arguments
       .get("profile_ids")
@@ -2212,11 +2140,7 @@ impl McpServer {
     &self,
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
-    Self::require_capability(
-      "Batch stopping profiles",
-      CLOUD_AUTH.can_use_browser_automation().await,
-    )
-    .await?;
+    Self::require_capability("Batch stopping profiles", true).await?;
 
     let profile_ids: Vec<String> = arguments
       .get("profile_ids")
@@ -3731,7 +3655,7 @@ impl McpServer {
   }
 
   async fn handle_list_extensions(&self) -> Result<serde_json::Value, McpError> {
-    if !CLOUD_AUTH.has_active_paid_subscription().await {
+    if false {
       return Err(McpError {
         code: -32000,
         message: "Extension management requires an active Pro subscription".to_string(),
@@ -3746,7 +3670,7 @@ impl McpServer {
   }
 
   async fn handle_list_extension_groups(&self) -> Result<serde_json::Value, McpError> {
-    if !CLOUD_AUTH.has_active_paid_subscription().await {
+    if false {
       return Err(McpError {
         code: -32000,
         message: "Extension management requires an active Pro subscription".to_string(),
@@ -3764,7 +3688,7 @@ impl McpServer {
     &self,
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
-    if !CLOUD_AUTH.has_active_paid_subscription().await {
+    if false {
       return Err(McpError {
         code: -32000,
         message: "Extension management requires an active Pro subscription".to_string(),
@@ -3789,7 +3713,7 @@ impl McpServer {
     &self,
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
-    if !CLOUD_AUTH.has_active_paid_subscription().await {
+    if false {
       return Err(McpError {
         code: -32000,
         message: "Extension management requires an active Pro subscription".to_string(),
@@ -3816,7 +3740,7 @@ impl McpServer {
     &self,
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
-    if !CLOUD_AUTH.has_active_paid_subscription().await {
+    if false {
       return Err(McpError {
         code: -32000,
         message: "Extension management requires an active Pro subscription".to_string(),
@@ -3846,7 +3770,7 @@ impl McpServer {
     &self,
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
-    if !CLOUD_AUTH.has_active_paid_subscription().await {
+    if false {
       return Err(McpError {
         code: -32000,
         message: "Extension management requires an active Pro subscription".to_string(),
