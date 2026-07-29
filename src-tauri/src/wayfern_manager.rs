@@ -238,6 +238,113 @@ impl WayfernManager {
       .or_else(|| pair("screenWidth", "screenHeight"))
   }
 
+  fn profile_identity_suffix(profile: &BrowserProfile) -> String {
+    profile.id.as_simple().to_string().chars().take(8).collect()
+  }
+
+  fn profile_window_label(profile: &BrowserProfile) -> String {
+    let suffix = Self::profile_identity_suffix(profile);
+    let name = profile.name.trim();
+    if name.is_empty() {
+      format!("Profile [{suffix}]")
+    } else {
+      format!("{name} [{suffix}]")
+    }
+  }
+
+  fn append_platform_window_identity_args(args: &mut Vec<String>, _profile: &BrowserProfile) {
+    args.push("--profile-directory=Default".to_string());
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let suffix = Self::profile_identity_suffix(_profile);
+
+    #[cfg(target_os = "linux")]
+    {
+      args.push(format!("--class=DonutBrowser-{suffix}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+      args.push(format!(
+        "--app-user-model-id=com.donutbrowser.profile.{suffix}"
+      ));
+    }
+  }
+
+  fn ensure_json_object(
+    value: &mut serde_json::Value,
+  ) -> &mut serde_json::Map<String, serde_json::Value> {
+    if !value.is_object() {
+      *value = json!({});
+    }
+    value
+      .as_object_mut()
+      .expect("value was just made an object")
+  }
+
+  fn ensure_child_object<'a>(
+    parent: &'a mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+  ) -> &'a mut serde_json::Map<String, serde_json::Value> {
+    let entry = parent.entry(key.to_string()).or_insert_with(|| json!({}));
+    Self::ensure_json_object(entry)
+  }
+
+  fn read_json_or_empty(
+    path: &std::path::Path,
+  ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    if !path.exists() {
+      return Ok(json!({}));
+    }
+    let raw = std::fs::read_to_string(path)?;
+    match serde_json::from_str(&raw) {
+      Ok(value) => Ok(value),
+      Err(e) => {
+        log::warn!(
+          "Could not parse {} as JSON; recreating it: {e}",
+          path.display()
+        );
+        Ok(json!({}))
+      }
+    }
+  }
+
+  fn configure_profile_identity(
+    profile_path: &str,
+    profile: &BrowserProfile,
+  ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let profile_path = PathBuf::from(profile_path);
+    let default_dir = profile_path.join("Default");
+    std::fs::create_dir_all(&default_dir)?;
+
+    let label = Self::profile_window_label(profile);
+
+    let prefs_path = default_dir.join("Preferences");
+    let mut prefs = Self::read_json_or_empty(&prefs_path)?;
+    let prefs_root = Self::ensure_json_object(&mut prefs);
+    let prefs_profile = Self::ensure_child_object(prefs_root, "profile");
+    prefs_profile.insert("name".to_string(), json!(label.clone()));
+    prefs_profile.insert("shortcut_name".to_string(), json!(label.clone()));
+    prefs_profile.insert("using_default_name".to_string(), json!(false));
+    std::fs::write(&prefs_path, serde_json::to_vec_pretty(&prefs)?)?;
+
+    let local_state_path = profile_path.join("Local State");
+    let mut local_state = Self::read_json_or_empty(&local_state_path)?;
+    let local_state_root = Self::ensure_json_object(&mut local_state);
+    let local_state_profile = Self::ensure_child_object(local_state_root, "profile");
+    local_state_profile.insert("last_used".to_string(), json!("Default"));
+    local_state_profile.insert("last_active_profiles".to_string(), json!(["Default"]));
+    let info_cache = Self::ensure_child_object(local_state_profile, "info_cache");
+    let default_profile = Self::ensure_child_object(info_cache, "Default");
+    default_profile.insert("name".to_string(), json!(label.clone()));
+    default_profile.insert("shortcut_name".to_string(), json!(label.clone()));
+    default_profile.insert("user_name".to_string(), json!(label));
+    default_profile.insert("is_using_default_name".to_string(), json!(false));
+    std::fs::write(&local_state_path, serde_json::to_vec_pretty(&local_state)?)?;
+
+    Ok(())
+  }
+
   fn configure_webrtc_preferences(
     profile_path: &str,
     block_webrtc: bool,
@@ -1125,6 +1232,7 @@ impl WayfernManager {
       "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string(),
       "--enforce-webrtc-ip-permission-check".to_string(),
     ];
+    Self::append_platform_window_identity_args(&mut args, profile);
 
     if headless {
       args.push("--headless=new".to_string());
@@ -1169,16 +1277,24 @@ impl WayfernManager {
         profile.name
       );
     }
+    if let Err(e) = Self::configure_profile_identity(profile_path, profile) {
+      log::warn!(
+        "Failed to configure Chromium profile identity for profile {}: {e}",
+        profile.name
+      );
+    }
 
     // Per-profile window label + distinct frame color so concurrent profile
     // windows are easy to tell apart. Wayfern reads these in
     // BrowserView::GetWindowTitle() (label) and BrowserFrameView::GetFrameColor()
-    // (color). The label is the profile name; the color is the user's
+    // (color). The label includes the short profile id so duplicate names stay
+    // distinguishable. The color is the user's
     // window_color when set, otherwise deterministically derived from the
     // profile id so every profile still gets a stable, distinct color.
-    if !profile.name.is_empty() {
-      args.push(format!("--wayfern-profile-label={}", profile.name));
-    }
+    args.push(format!(
+      "--wayfern-profile-label={}",
+      Self::profile_window_label(profile)
+    ));
     // Profiles created before this feature have no stored color; persist the
     // id-derived one so the info dialog shows the same frame color the window
     // uses. It's deterministic per id, so no updated_at bump/sync is needed.
@@ -1894,6 +2010,75 @@ mod tests {
     assert_eq!(
       WayfernManager::window_size_from_fingerprint("not json"),
       None
+    );
+  }
+
+  #[test]
+  fn profile_window_label_includes_short_id() {
+    let profile = BrowserProfile {
+      id: uuid::Uuid::parse_str("12345678-1234-1234-1234-123456789abc").unwrap(),
+      name: "Buyer Account".to_string(),
+      ..Default::default()
+    };
+
+    assert_eq!(
+      WayfernManager::profile_window_label(&profile),
+      "Buyer Account [12345678]"
+    );
+  }
+
+  #[test]
+  fn platform_identity_args_include_default_profile() {
+    let profile = BrowserProfile {
+      id: uuid::Uuid::parse_str("12345678-1234-1234-1234-123456789abc").unwrap(),
+      name: "Buyer Account".to_string(),
+      ..Default::default()
+    };
+    let mut args = Vec::new();
+
+    WayfernManager::append_platform_window_identity_args(&mut args, &profile);
+
+    assert!(args.contains(&"--profile-directory=Default".to_string()));
+    #[cfg(target_os = "linux")]
+    assert!(args.contains(&"--class=DonutBrowser-12345678".to_string()));
+    #[cfg(target_os = "windows")]
+    assert!(args.contains(&"--app-user-model-id=com.donutbrowser.profile.12345678".to_string()));
+  }
+
+  #[test]
+  fn configure_profile_identity_writes_chromium_profile_names() {
+    let profile = BrowserProfile {
+      id: uuid::Uuid::parse_str("12345678-1234-1234-1234-123456789abc").unwrap(),
+      name: "Buyer Account".to_string(),
+      ..Default::default()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let profile_path = dir.path().join("profile");
+
+    WayfernManager::configure_profile_identity(profile_path.to_str().unwrap(), &profile).unwrap();
+
+    let prefs_path = profile_path.join("Default").join("Preferences");
+    let prefs: serde_json::Value =
+      serde_json::from_str(&std::fs::read_to_string(prefs_path).unwrap()).unwrap();
+    assert_eq!(
+      prefs.pointer("/profile/name").and_then(|v| v.as_str()),
+      Some("Buyer Account [12345678]")
+    );
+
+    let local_state_path = profile_path.join("Local State");
+    let local_state: serde_json::Value =
+      serde_json::from_str(&std::fs::read_to_string(local_state_path).unwrap()).unwrap();
+    assert_eq!(
+      local_state
+        .pointer("/profile/info_cache/Default/name")
+        .and_then(|v| v.as_str()),
+      Some("Buyer Account [12345678]")
+    );
+    assert_eq!(
+      local_state
+        .pointer("/profile/last_active_profiles/0")
+        .and_then(|v| v.as_str()),
+      Some("Default")
     );
   }
 }
