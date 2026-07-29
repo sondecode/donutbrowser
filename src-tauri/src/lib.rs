@@ -32,6 +32,7 @@ mod extraction;
 mod geoip_downloader;
 mod geolocation;
 mod group_manager;
+mod hardware_presets;
 mod human_typing;
 mod ip_utils;
 mod platform_browser;
@@ -68,9 +69,10 @@ use browser_runner::{
 
 use profile::manager::{
   check_browser_status, clone_profile, create_browser_profile_new, delete_profile,
-  list_browser_profiles, rename_profile, update_profile_dns_blocklist, update_profile_launch_hook,
-  update_profile_note, update_profile_proxy, update_profile_proxy_bypass_rules,
-  update_profile_tags, update_profile_vpn, update_profile_window_color, update_wayfern_config,
+  list_browser_profiles, rename_profile, set_hardware_preset, update_profile_dns_blocklist,
+  update_profile_launch_hook, update_profile_note, update_profile_proxy,
+  update_profile_proxy_bypass_rules, update_profile_tags, update_profile_vpn,
+  update_profile_window_color, update_wayfern_config,
 };
 
 use profile::password::{
@@ -2269,6 +2271,7 @@ pub fn run() {
       parse_txt_proxies,
       import_proxies_from_parsed,
       update_wayfern_config,
+      set_hardware_preset,
       generate_sample_fingerprint,
       get_profile_groups,
       get_groups_with_profile_counts,
@@ -2432,6 +2435,7 @@ mod tests {
       "set_extension_group_sync_enabled",
       "get_team_lock_status",
       "generate_sample_fingerprint",
+      "set_hardware_preset",
       "cloud_get_wayfern_token",
       "cloud_refresh_wayfern_token",
       "lock_profile",

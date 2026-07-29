@@ -24,6 +24,7 @@ import { isManualLocationComplete } from "@/lib/fingerprint-location";
 import {
   applyHardwarePreset,
   HARDWARE_PRESET_GROUPS,
+  HARDWARE_PRESET_KEYS,
   HARDWARE_PRESETS,
   type HardwarePresetId,
   matchHardwarePreset,
@@ -88,9 +89,16 @@ export function WayfernConfigForm({
   const [currentOS] = useState<WayfernOS>(getCurrentOS);
   const [isGeneratingFingerprint, setIsGeneratingFingerprint] = useState(false);
   const selectedOS = config.os || currentOS;
+  const persistedHardwarePreset = HARDWARE_PRESETS.some(
+    (preset) => preset.id === config.hardware_preset_id,
+  )
+    ? (config.hardware_preset_id as HardwarePresetId)
+    : null;
   const selectedHardwarePreset = useMemo(
-    () => matchHardwarePreset(fingerprintConfig, selectedOS),
-    [fingerprintConfig, selectedOS],
+    () =>
+      persistedHardwarePreset ??
+      matchHardwarePreset(fingerprintConfig, selectedOS),
+    [fingerprintConfig, persistedHardwarePreset, selectedOS],
   );
 
   const handleGenerateFingerprint = async () => {
@@ -103,6 +111,7 @@ export function WayfernConfigForm({
         version: profileVersion,
         configJson,
       });
+      onConfigChange("hardware_preset_id", undefined);
       onConfigChange("fingerprint", result);
     } catch (error) {
       console.error("Failed to generate fingerprint:", error);
@@ -163,6 +172,9 @@ export function WayfernConfigForm({
     }
 
     setFingerprintConfig(newConfig);
+    if (HARDWARE_PRESET_KEYS.includes(key) && config.hardware_preset_id) {
+      onConfigChange("hardware_preset_id", undefined);
+    }
 
     try {
       const jsonString = JSON.stringify(newConfig);
@@ -179,6 +191,7 @@ export function WayfernConfigForm({
     const mergedFingerprint = applyHardwarePreset(fingerprintConfig, presetId);
     setFingerprintConfig(mergedFingerprint);
     onConfigChange("os", preset.os);
+    onConfigChange("hardware_preset_id", preset.id);
     onConfigChange("fingerprint", JSON.stringify(mergedFingerprint));
   };
 
@@ -227,6 +240,7 @@ export function WayfernConfigForm({
         <Select
           value={selectedOS}
           onValueChange={(value: WayfernOS) => {
+            onConfigChange("hardware_preset_id", undefined);
             onConfigChange("os", value);
           }}
           disabled={readOnly}
@@ -1212,6 +1226,7 @@ export function WayfernConfigForm({
               <Select
                 value={selectedOS}
                 onValueChange={(value: WayfernOS) => {
+                  onConfigChange("hardware_preset_id", undefined);
                   onConfigChange("os", value);
                 }}
                 disabled={readOnly}

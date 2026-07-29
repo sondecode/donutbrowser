@@ -2,11 +2,15 @@
 //! and locale generation based on country/territory information.
 
 use crate::geoip_downloader::GeoIPDownloader;
+use chrono::Offset;
 use maxminddb::{geoip2, Reader};
 use quick_xml::events::Event;
 use quick_xml::Reader as XmlReader;
 use rand::RngExt;
+use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::str::FromStr;
 
@@ -65,9 +69,58 @@ pub struct Geolocation {
   pub timezone: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IpLocationDetails {
+  pub ip: String,
+  pub latitude: f64,
+  pub longitude: f64,
+  pub timezone: String,
+  pub timezone_offset_minutes: i32,
+  pub accuracy_meters: f64,
+  pub city: Option<String>,
+  pub region: Option<String>,
+  pub country_code: Option<String>,
+  pub locale: Option<String>,
+  pub source: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct IpWhoIsResponse {
+  success: bool,
+  message: Option<String>,
+  ip: Option<String>,
+  latitude: Option<f64>,
+  longitude: Option<f64>,
+  city: Option<String>,
+  region: Option<String>,
+  country_code: Option<String>,
+  timezone: Option<IpWhoIsTimezone>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IpWhoIsTimezone {
+  id: Option<String>,
+}
+
 struct LanguagePopulation {
   language: String,
   population_percent: f64,
+}
+
+fn jitter_coordinates(ip: &str, latitude: f64, longitude: f64) -> (f64, f64) {
+  let mut hasher = DefaultHasher::new();
+  ip.hash(&mut hasher);
+  let seed = hasher.finish();
+
+  let lat_bucket = (seed & 0xffff) as f64 / 65535.0;
+  let lon_bucket = ((seed >> 16) & 0xffff) as f64 / 65535.0;
+  let lat_sign = if ((seed >> 32) & 1) == 0 { -1.0 } else { 1.0 };
+  let lon_sign = if ((seed >> 33) & 1) == 0 { -1.0 } else { 1.0 };
+
+  let lat_delta = lat_sign * (0.003 + lat_bucket * 0.014);
+  let lon_delta = lon_sign * (0.003 + lon_bucket * 0.014);
+
+  (latitude + lat_delta, longitude + lon_delta)
 }
 
 pub struct LocaleSelector {
@@ -260,6 +313,7 @@ pub fn get_geolocation(ip: &str) -> Result<Geolocation, GeolocationError> {
 
   let selector = LocaleSelector::new()?;
   let locale = selector.from_region(&iso_code)?;
+  let (latitude, longitude) = jitter_coordinates(ip, latitude, longitude);
 
   Ok(Geolocation {
     locale,
@@ -267,6 +321,94 @@ pub fn get_geolocation(ip: &str) -> Result<Geolocation, GeolocationError> {
     latitude,
     timezone,
   })
+}
+
+pub async fn lookup_ip_location_details(
+  ip: &str,
+  accuracy_meters: Option<f64>,
+) -> Result<IpLocationDetails, GeolocationError> {
+  if !crate::ip_utils::validate_ip(ip) {
+    return Err(GeolocationError::InvalidIP(ip.to_string()));
+  }
+
+  let url = format!(
+    "https://ipwho.is/{ip}?fields=success,message,ip,latitude,longitude,city,region,country_code,timezone"
+  );
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(10))
+    .build()
+    .map_err(|e| GeolocationError::Ip(IpError::Network(e.to_string())))?;
+  let response = client
+    .get(url)
+    .send()
+    .await
+    .map_err(|e| GeolocationError::Ip(IpError::Network(e.to_string())))?;
+
+  if !response.status().is_success() {
+    return Err(GeolocationError::LocationNotFound(format!(
+      "ipwho.is returned HTTP {}",
+      response.status()
+    )));
+  }
+
+  let resolved = response
+    .json::<IpWhoIsResponse>()
+    .await
+    .map_err(|e| GeolocationError::LocationNotFound(e.to_string()))?;
+
+  if !resolved.success {
+    return Err(GeolocationError::LocationNotFound(
+      resolved.message.unwrap_or_else(|| ip.to_string()),
+    ));
+  }
+
+  let latitude = resolved
+    .latitude
+    .ok_or_else(|| GeolocationError::LocationNotFound("No latitude".to_string()))?;
+  let longitude = resolved
+    .longitude
+    .ok_or_else(|| GeolocationError::LocationNotFound("No longitude".to_string()))?;
+  let timezone = resolved
+    .timezone
+    .and_then(|tz| tz.id)
+    .filter(|tz| !tz.trim().is_empty())
+    .ok_or_else(|| GeolocationError::LocationNotFound("No timezone".to_string()))?;
+  let timezone_offset_minutes = timezone_offset_minutes(&timezone)
+    .ok_or_else(|| GeolocationError::LocationNotFound("Invalid timezone".to_string()))?;
+  let locale = resolved.country_code.as_deref().and_then(|country_code| {
+    LocaleSelector::new()
+      .ok()
+      .and_then(|selector| selector.from_region(country_code).ok())
+      .map(|locale| locale.as_string())
+  });
+  let (latitude, longitude) = jitter_coordinates(
+    &resolved.ip.clone().unwrap_or_else(|| ip.to_string()),
+    latitude,
+    longitude,
+  );
+
+  Ok(IpLocationDetails {
+    ip: resolved.ip.unwrap_or_else(|| ip.to_string()),
+    latitude,
+    longitude,
+    timezone,
+    timezone_offset_minutes,
+    accuracy_meters: accuracy_meters.unwrap_or(20_000.0),
+    city: resolved.city.filter(|value| !value.trim().is_empty()),
+    region: resolved.region.filter(|value| !value.trim().is_empty()),
+    country_code: resolved
+      .country_code
+      .filter(|value| !value.trim().is_empty()),
+    locale,
+    source: "ipwho.is".to_string(),
+  })
+}
+
+pub fn timezone_offset_minutes(timezone: &str) -> Option<i32> {
+  let tz = timezone.parse::<chrono_tz::Tz>().ok()?;
+  let now = chrono::Utc::now().with_timezone(&tz);
+  let offset_seconds = now.offset().fix().local_minus_utc();
+  Some(-(offset_seconds / 60))
 }
 
 #[cfg(test)]

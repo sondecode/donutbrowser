@@ -22,6 +22,8 @@ pub struct WayfernConfig {
   #[serde(default)]
   pub os: Option<String>,
   #[serde(default)]
+  pub hardware_preset_id: Option<String>,
+  #[serde(default)]
   pub screen_max_width: Option<u32>,
   #[serde(default)]
   pub screen_max_height: Option<u32>,

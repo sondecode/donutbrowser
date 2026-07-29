@@ -241,6 +241,7 @@ export interface WayfernConfig {
   fingerprint?: string; // JSON string of the complete fingerprint config
   randomize_fingerprint_on_launch?: boolean; // Generate new fingerprint on every launch
   os?: WayfernOS; // Operating system for fingerprint generation
+  hardware_preset_id?: string; // Stable selected hardware preset id
   geo_proxy_signature?: string; // Internal: routing the fingerprint's location was computed for
 }
 

@@ -1091,6 +1091,50 @@ impl McpServer {
         }),
       },
       McpTool {
+        name: "set_hardware_preset".to_string(),
+        description:
+          "Apply one of Donut's built-in hardware presets to a Chromium profile by preset id. Requires an active Pro subscription."
+            .to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "profile_id": {
+              "type": "string",
+              "description": "The UUID of the profile to update"
+            },
+            "preset_id": {
+              "type": "string",
+              "description": "Built-in hardware preset id, for example macbook_air_m1_13, mac_mini_m4_2024_16, or dell_xps_13"
+            }
+          },
+          "required": ["profile_id", "preset_id"]
+        }),
+      },
+      McpTool {
+        name: "set_profile_location_from_ip".to_string(),
+        description:
+          "Resolve an IP address, or the profile's assigned proxy exit IP, and persist matching timezone and geolocation fingerprint fields for a Chromium profile. Requires an active Pro subscription."
+            .to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "profile_id": {
+              "type": "string",
+              "description": "The UUID of the profile to update"
+            },
+            "ip": {
+              "type": "string",
+              "description": "Optional IP address to resolve. When omitted, Donut checks the profile's assigned proxy and uses its exit IP."
+            },
+            "accuracy_meters": {
+              "type": "number",
+              "description": "Optional geolocation accuracy radius to write to the browser fingerprint. Defaults to 20000."
+            }
+          },
+          "required": ["profile_id"]
+        }),
+      },
+      McpTool {
         name: "update_profile_proxy_bypass_rules".to_string(),
         description:
           "Update proxy bypass rules for a profile. Requests matching these rules will connect directly, bypassing the proxy."
@@ -1752,6 +1796,22 @@ impl McpServer {
         )
         .await?;
         self.handle_update_profile_fingerprint(arguments).await
+      }
+      "set_hardware_preset" => {
+        Self::require_capability(
+          "Fingerprint editing",
+          CLOUD_AUTH.can_use_cross_os_fingerprints().await,
+        )
+        .await?;
+        self.handle_set_hardware_preset(arguments).await
+      }
+      "set_profile_location_from_ip" => {
+        Self::require_capability(
+          "Fingerprint editing",
+          CLOUD_AUTH.can_use_cross_os_fingerprints().await,
+        )
+        .await?;
+        self.handle_set_profile_location_from_ip(arguments).await
       }
       "update_profile_proxy_bypass_rules" => {
         self
@@ -3434,6 +3494,8 @@ impl McpServer {
           "browser": "chromium",
           "fingerprint": config.fingerprint,
           "os": config.os,
+          "hardware_preset_id": config.hardware_preset_id,
+          "geoip": config.geoip,
           "randomize_fingerprint_on_launch": config.randomize_fingerprint_on_launch,
           "screen_max_width": config.screen_max_width,
           "screen_max_height": config.screen_max_height,
@@ -3524,6 +3586,9 @@ impl McpServer {
         if let Some(os_val) = os {
           config.os = Some(os_val.to_string());
         }
+        if fingerprint.is_some() || os.is_some() {
+          config.hardware_preset_id = None;
+        }
         if let Some(r) = randomize {
           config.randomize_fingerprint_on_launch = Some(r);
         }
@@ -3547,6 +3612,104 @@ impl McpServer {
       "content": [{
         "type": "text",
         "text": format!("Fingerprint configuration updated for profile '{}'", profile.name)
+      }]
+    }))
+  }
+
+  async fn handle_set_hardware_preset(
+    &self,
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    let profile_id = arguments
+      .get("profile_id")
+      .and_then(|v| v.as_str())
+      .ok_or_else(|| McpError {
+        code: -32602,
+        message: "Missing profile_id".to_string(),
+      })?;
+    let preset_id = arguments
+      .get("preset_id")
+      .and_then(|v| v.as_str())
+      .ok_or_else(|| McpError {
+        code: -32602,
+        message: "Missing preset_id".to_string(),
+      })?;
+
+    let inner = self.inner.lock().await;
+    let app_handle = inner.app_handle.as_ref().ok_or_else(|| McpError {
+      code: -32000,
+      message: "MCP server not properly initialized".to_string(),
+    })?;
+
+    let profile = ProfileManager::instance()
+      .set_hardware_preset(app_handle.clone(), profile_id, preset_id)
+      .await
+      .map_err(|e| McpError {
+        code: -32000,
+        message: format!("Failed to set hardware preset: {e}"),
+      })?;
+
+    Ok(serde_json::json!({
+      "content": [{
+        "type": "text",
+        "text": format!("Hardware preset '{}' applied for profile '{}'", preset_id, profile.name)
+      }]
+    }))
+  }
+
+  async fn handle_set_profile_location_from_ip(
+    &self,
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    let profile_id = arguments
+      .get("profile_id")
+      .and_then(|v| v.as_str())
+      .ok_or_else(|| McpError {
+        code: -32602,
+        message: "Missing profile_id".to_string(),
+      })?;
+    let ip = arguments
+      .get("ip")
+      .and_then(|v| v.as_str())
+      .map(str::to_string);
+    let accuracy_meters = arguments
+      .get("accuracy_meters")
+      .and_then(|v| v.as_f64())
+      .filter(|value| value.is_finite() && *value > 0.0);
+
+    let inner = self.inner.lock().await;
+    let app_handle = inner.app_handle.as_ref().ok_or_else(|| McpError {
+      code: -32000,
+      message: "MCP server not properly initialized".to_string(),
+    })?;
+
+    let (profile, location) = ProfileManager::instance()
+      .set_location_from_ip(app_handle.clone(), profile_id, ip, accuracy_meters)
+      .await
+      .map_err(|e| McpError {
+        code: -32000,
+        message: format!("Failed to set profile location from IP: {e}"),
+      })?;
+
+    Ok(serde_json::json!({
+      "content": [{
+        "type": "text",
+        "text": serde_json::to_string_pretty(&serde_json::json!({
+          "profile_id": profile.id.to_string(),
+          "profile_name": profile.name,
+          "ip": location.ip,
+          "source": location.source,
+          "timezone": location.timezone,
+          "timezone_offset_minutes": location.timezone_offset_minutes,
+          "latitude": location.latitude,
+          "longitude": location.longitude,
+          "accuracy_meters": location.accuracy_meters,
+          "city": location.city,
+          "region": location.region,
+          "country_code": location.country_code,
+          "locale": location.locale,
+          "geoip": false
+        })).unwrap_or_default()
       }]
     }))
   }
@@ -5217,8 +5380,8 @@ mod tests {
     let server = McpServer::new();
     let tools = server.get_tools();
 
-    // Should have at least 41 tools (34 + 7 browser interaction tools)
-    assert!(tools.len() >= 41);
+    // Should have at least 43 tools (36 + 7 browser interaction tools)
+    assert!(tools.len() >= 43);
 
     // Check tool names
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -5254,6 +5417,8 @@ mod tests {
     // Fingerprint tools
     assert!(tool_names.contains(&"get_profile_fingerprint"));
     assert!(tool_names.contains(&"update_profile_fingerprint"));
+    assert!(tool_names.contains(&"set_hardware_preset"));
+    assert!(tool_names.contains(&"set_profile_location_from_ip"));
     assert!(tool_names.contains(&"update_profile_proxy_bypass_rules"));
     // Extension tools
     assert!(tool_names.contains(&"list_extensions"));

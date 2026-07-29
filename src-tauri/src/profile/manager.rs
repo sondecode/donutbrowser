@@ -1123,6 +1123,256 @@ impl ProfileManager {
     Ok(())
   }
 
+  pub async fn set_hardware_preset(
+    &self,
+    app_handle: tauri::AppHandle,
+    profile_id: &str,
+    preset_id: &str,
+  ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
+    let profile_uuid = uuid::Uuid::parse_str(profile_id).map_err(
+      |_| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Invalid profile ID: {profile_id}").into()
+      },
+    )?;
+    let profiles =
+      self
+        .list_profiles()
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+          format!("Failed to list profiles: {e}").into()
+        })?;
+    let mut profile = profiles
+      .into_iter()
+      .find(|p| p.id == profile_uuid)
+      .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Profile with ID '{profile_id}' not found").into()
+      })?;
+
+    let is_running = self
+      .check_browser_status(app_handle.clone(), &profile)
+      .await?;
+
+    if is_running {
+      return Err(
+        "Cannot update hardware preset while browser is running. Please stop the browser first."
+          .into(),
+      );
+    }
+
+    let mut config = profile.wayfern_config.as_ref().cloned().unwrap_or_default();
+    let (fingerprint, os) =
+      crate::hardware_presets::apply_hardware_preset(config.fingerprint.as_deref(), preset_id)
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
+    if !CLOUD_AUTH.is_fingerprint_os_allowed(Some(&os)).await {
+      return Err("Fingerprint OS spoofing requires an active Pro subscription".into());
+    }
+
+    config.fingerprint = Some(fingerprint);
+    config.os = Some(os);
+    config.hardware_preset_id = Some(preset_id.to_string());
+    config
+      .validate_manual_location()
+      .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
+    profile.wayfern_config = Some(config);
+    self
+      .save_profile(&profile)
+      .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Failed to save profile: {e}").into()
+      })?;
+
+    crate::sync::queue_profile_sync_if_eligible(&profile);
+
+    log::info!(
+      "Hardware preset '{preset_id}' applied for profile '{}' (ID: {}).",
+      profile.name,
+      profile_id
+    );
+
+    if let Err(e) = events::emit_empty("profiles-changed") {
+      log::warn!("Warning: Failed to emit profiles-changed event: {e}");
+    }
+
+    Ok(profile)
+  }
+
+  pub async fn set_location_from_ip(
+    &self,
+    app_handle: tauri::AppHandle,
+    profile_id: &str,
+    ip: Option<String>,
+    accuracy_meters: Option<f64>,
+  ) -> Result<
+    (BrowserProfile, crate::geolocation::IpLocationDetails),
+    Box<dyn std::error::Error + Send + Sync>,
+  > {
+    let profile_uuid = uuid::Uuid::parse_str(profile_id).map_err(
+      |_| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Invalid profile ID: {profile_id}").into()
+      },
+    )?;
+    let profiles =
+      self
+        .list_profiles()
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+          format!("Failed to list profiles: {e}").into()
+        })?;
+    let mut profile = profiles
+      .into_iter()
+      .find(|p| p.id == profile_uuid)
+      .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Profile with ID '{profile_id}' not found").into()
+      })?;
+
+    if !crate::browser::is_chromium_target(&profile.browser) {
+      return Err("Location fingerprinting only supports Chromium profiles".into());
+    }
+
+    let is_running = self
+      .check_browser_status(app_handle.clone(), &profile)
+      .await?;
+
+    if is_running {
+      return Err(
+        "Cannot update location fingerprint while browser is running. Please stop the browser first."
+          .into(),
+      );
+    }
+
+    let exit_ip = match ip {
+      Some(value) if crate::ip_utils::validate_ip(&value) => value,
+      Some(value) => return Err(format!("Invalid IP address: {value}").into()),
+      None => self.resolve_profile_exit_ip(&profile).await?,
+    };
+    let location =
+      crate::geolocation::lookup_ip_location_details(&exit_ip, accuracy_meters).await?;
+
+    let mut config = profile.wayfern_config.as_ref().cloned().unwrap_or_default();
+    config.fingerprint = Some(Self::apply_location_to_fingerprint(
+      config.fingerprint.as_deref(),
+      &location,
+    )?);
+    config.geoip = Some(serde_json::Value::Bool(false));
+    config.geo_proxy_signature = None;
+
+    config
+      .validate_manual_location()
+      .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
+    profile.wayfern_config = Some(config);
+    self
+      .save_profile(&profile)
+      .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Failed to save profile: {e}").into()
+      })?;
+
+    crate::sync::queue_profile_sync_if_eligible(&profile);
+
+    log::info!(
+      "Location fingerprint from IP {} applied for profile '{}' (ID: {}).",
+      location.ip,
+      profile.name,
+      profile_id
+    );
+
+    if let Err(e) = events::emit_empty("profiles-changed") {
+      log::warn!("Warning: Failed to emit profiles-changed event: {e}");
+    }
+
+    Ok((profile, location))
+  }
+
+  async fn resolve_profile_exit_ip(
+    &self,
+    profile: &BrowserProfile,
+  ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(proxy_id) = profile.proxy_id.as_deref() {
+      let proxy = PROXY_MANAGER
+        .get_stored_proxies()
+        .into_iter()
+        .find(|proxy| proxy.id == proxy_id)
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+          format!("Proxy with ID '{proxy_id}' not found").into()
+        })?;
+
+      let result = PROXY_MANAGER
+        .check_proxy_validity(proxy_id, &proxy.proxy_settings)
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+      if result.is_valid && crate::ip_utils::validate_ip(&result.ip) {
+        return Ok(result.ip);
+      }
+
+      return Err(format!("Proxy '{proxy_id}' did not return a valid exit IP").into());
+    }
+
+    crate::ip_utils::fetch_public_ip(None)
+      .await
+      .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })
+  }
+
+  fn apply_location_to_fingerprint(
+    fingerprint_json: Option<&str>,
+    location: &crate::geolocation::IpLocationDetails,
+  ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let mut root =
+      match fingerprint_json {
+        Some(value) if !value.trim().is_empty() => serde_json::from_str::<serde_json::Value>(value)
+          .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+            format!("Invalid fingerprint JSON: {e}").into()
+          })?,
+        _ => serde_json::Value::Object(serde_json::Map::new()),
+      };
+
+    let is_wrapped = root.get("fingerprint").is_some();
+    let fingerprint = if is_wrapped {
+      root
+        .get_mut("fingerprint")
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+          "Wrapped fingerprint is missing".into()
+        })?
+    } else {
+      &mut root
+    };
+
+    if !fingerprint.is_object() {
+      *fingerprint = serde_json::Value::Object(serde_json::Map::new());
+    }
+
+    let object =
+      fingerprint
+        .as_object_mut()
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+          "Fingerprint must be a JSON object".into()
+        })?;
+    object.insert("timezone".to_string(), serde_json::json!(location.timezone));
+    object.insert(
+      "timezoneOffset".to_string(),
+      serde_json::json!(location.timezone_offset_minutes),
+    );
+    object.insert("latitude".to_string(), serde_json::json!(location.latitude));
+    object.insert(
+      "longitude".to_string(),
+      serde_json::json!(location.longitude),
+    );
+    object.insert(
+      "accuracy".to_string(),
+      serde_json::json!(location.accuracy_meters),
+    );
+    if let Some(locale) = location.locale.as_deref() {
+      object.insert("language".to_string(), serde_json::json!(locale));
+      let base_language = locale.split('-').next().unwrap_or(locale);
+      object.insert(
+        "languages".to_string(),
+        serde_json::json!([locale, base_language]),
+      );
+    }
+
+    serde_json::to_string(&root).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+      format!("Failed to serialize fingerprint: {e}").into()
+    })
+  }
+
   pub async fn update_profile_proxy(
     &self,
     _app_handle: tauri::AppHandle,
@@ -1918,6 +2168,19 @@ pub async fn update_wayfern_config(
     .update_wayfern_config(app_handle, &profile_id, config)
     .await
     .map_err(|e| format!("Failed to update Wayfern config: {e}"))
+}
+
+#[tauri::command]
+pub async fn set_hardware_preset(
+  app_handle: tauri::AppHandle,
+  profile_id: String,
+  preset_id: String,
+) -> Result<BrowserProfile, String> {
+  let profile_manager = ProfileManager::instance();
+  profile_manager
+    .set_hardware_preset(app_handle, &profile_id, &preset_id)
+    .await
+    .map_err(|e| format!("Failed to set hardware preset: {e}"))
 }
 
 #[tauri::command]
