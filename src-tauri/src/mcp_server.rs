@@ -4251,126 +4251,73 @@ impl McpServer {
       })
   }
 
+  /// Type `text` with human cadence: per-keystroke jitter, typos and
+  /// corrections, fatigue. Scheduling and transport come from
+  /// `cdp::send_timed_sequence`, so this and the pointer paths share one
+  /// implementation of "stream timed input events over a single socket".
   async fn send_human_keystrokes(
     &self,
     ws_url: &str,
     text: &str,
     wpm: Option<f64>,
   ) -> Result<(), McpError> {
+    use crate::automation::cdp::TimedCommand;
     use crate::human_typing::{MarkovTyper, TypingAction};
-    use futures_util::sink::SinkExt;
-    use futures_util::stream::StreamExt;
-    use tokio_tungstenite::connect_async;
-    use tokio_tungstenite::tungstenite::Message;
 
-    let events = MarkovTyper::new(text, wpm).run();
+    let mut commands = Vec::new();
 
-    let (mut ws_stream, _) = connect_async(ws_url).await.map_err(|e| McpError {
-      code: -32000,
-      message: format!("Failed to connect to CDP WebSocket: {e}"),
-    })?;
-
-    let mut cmd_id = 1u64;
-    let mut last_time = 0.0;
-
-    for event in &events {
-      let delay = event.time - last_time;
-      if delay > 0.0 {
-        tokio::time::sleep(std::time::Duration::from_secs_f64(delay)).await;
-      }
-      last_time = event.time;
-
-      match &event.action {
+    for event in MarkovTyper::new(text, wpm).run() {
+      let (down, up) = match &event.action {
         TypingAction::Char(ch) => {
           let text_str = ch.to_string();
-          // keyDown
-          let down = serde_json::json!({
-            "id": cmd_id,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
+          (
+            serde_json::json!({
               "type": "keyDown",
               "text": text_str,
               "key": text_str,
-              "unmodifiedText": text_str,
-            }
-          });
-          cmd_id += 1;
-          ws_stream
-            .send(Message::Text(down.to_string().into()))
-            .await
-            .map_err(|e| McpError {
-              code: -32000,
-              message: format!("Failed to send key event: {e}"),
-            })?;
-          // Drain response
-          let _ = ws_stream.next().await;
-
-          // keyUp
-          let up = serde_json::json!({
-            "id": cmd_id,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
+            }),
+            serde_json::json!({
               "type": "keyUp",
               "key": text_str,
-            }
-          });
-          cmd_id += 1;
-          ws_stream
-            .send(Message::Text(up.to_string().into()))
-            .await
-            .map_err(|e| McpError {
-              code: -32000,
-              message: format!("Failed to send key event: {e}"),
-            })?;
-          let _ = ws_stream.next().await;
+            }),
+          )
         }
-        TypingAction::Backspace => {
-          let down = serde_json::json!({
-            "id": cmd_id,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
-              "type": "keyDown",
-              "key": "Backspace",
-              "code": "Backspace",
-              "windowsVirtualKeyCode": 8,
-              "nativeVirtualKeyCode": 8,
-            }
-          });
-          cmd_id += 1;
-          ws_stream
-            .send(Message::Text(down.to_string().into()))
-            .await
-            .map_err(|e| McpError {
-              code: -32000,
-              message: format!("Failed to send key event: {e}"),
-            })?;
-          let _ = ws_stream.next().await;
+        TypingAction::Backspace => (
+          serde_json::json!({
+            "type": "keyDown",
+            "key": "Backspace",
+            "code": "Backspace",
+            "windowsVirtualKeyCode": 8,
+            "nativeVirtualKeyCode": 8,
+          }),
+          serde_json::json!({
+            "type": "keyUp",
+            "key": "Backspace",
+            "code": "Backspace",
+            "windowsVirtualKeyCode": 8,
+            "nativeVirtualKeyCode": 8,
+          }),
+        ),
+      };
 
-          let up = serde_json::json!({
-            "id": cmd_id,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
-              "type": "keyUp",
-              "key": "Backspace",
-              "code": "Backspace",
-              "windowsVirtualKeyCode": 8,
-              "nativeVirtualKeyCode": 8,
-            }
-          });
-          cmd_id += 1;
-          ws_stream
-            .send(Message::Text(up.to_string().into()))
-            .await
-            .map_err(|e| McpError {
-              code: -32000,
-              message: format!("Failed to send key event: {e}"),
-            })?;
-          let _ = ws_stream.next().await;
-        }
-      }
+      commands.push(TimedCommand {
+        at: event.time,
+        method: "Input.dispatchKeyEvent".to_string(),
+        params: down,
+      });
+      commands.push(TimedCommand {
+        at: event.time,
+        method: "Input.dispatchKeyEvent".to_string(),
+        params: up,
+      });
     }
 
-    Ok(())
+    crate::automation::cdp::send_timed_sequence(ws_url, &commands)
+      .await
+      .map_err(|message| McpError {
+        code: -32000,
+        message,
+      })
   }
 
   /// Send a CDP command and wait for the page to finish loading.

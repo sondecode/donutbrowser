@@ -24,6 +24,8 @@ donutbrowser/
 │   ├── src/
 │   │   ├── lib.rs                    # Tauri command registration (100+ commands)
 │   │   ├── automation/               # Scenario templates + batch executor + shared CDP client
+│   │   ├── human_mouse.rs            # Human pointer kinematics (paths, overshoot, tremor)
+│   │   ├── human_typing.rs           # Human keystroke cadence (typos, fatigue)
 │   │   ├── browser_runner.rs         # Profile launch/kill orchestration
 │   │   ├── browser.rs               # Browser trait & launch logic
 │   │   ├── profile/                  # Profile CRUD (manager.rs, types.rs)

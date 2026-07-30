@@ -34,6 +34,7 @@ mod geoip_downloader;
 mod geolocation;
 mod group_manager;
 mod hardware_presets;
+mod human_mouse;
 mod human_typing;
 mod ip_utils;
 mod platform_browser;

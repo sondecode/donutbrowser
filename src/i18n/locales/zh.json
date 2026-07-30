@@ -1858,7 +1858,8 @@
     "automationProfileNotChromium": "配置文件“{{name}}”不是 Chromium 配置文件，无法自动化。",
     "automationProfileAlreadyRunning": "配置文件“{{name}}”已在运行。请先停止再自动化。",
     "automationNoLinkFound": "页面上未找到合适的链接。",
-    "automationNoEligibleProfiles": "目标配置文件当前都无法自动化。"
+    "automationNoEligibleProfiles": "目标配置文件当前都无法自动化。",
+    "automationLinkClickFailed": "已点击页面上找到的链接，但没有一个发生跳转。"
   },
   "rail": {
     "profiles": "配置文件",

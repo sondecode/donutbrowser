@@ -1858,7 +1858,8 @@
     "automationProfileNotChromium": "Профиль «{{name}}» не является профилем Chromium, поэтому его нельзя автоматизировать.",
     "automationProfileAlreadyRunning": "Профиль «{{name}}» уже запущен. Остановите его перед автоматизацией.",
     "automationNoLinkFound": "На странице не найдено подходящих ссылок.",
-    "automationNoEligibleProfiles": "Ни один из выбранных профилей сейчас нельзя автоматизировать."
+    "automationNoEligibleProfiles": "Ни один из выбранных профилей сейчас нельзя автоматизировать.",
+    "automationLinkClickFailed": "Найденные на странице ссылки были нажаты, но ни одна не привела к переходу."
   },
   "rail": {
     "profiles": "Профили",

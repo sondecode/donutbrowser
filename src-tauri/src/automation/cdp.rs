@@ -216,6 +216,56 @@ pub async fn send_and_wait_for_load(
   command_result.ok_or_else(|| "No response received from CDP".to_string())
 }
 
+/// One command scheduled at an offset from the sequence start.
+#[derive(Debug, Clone)]
+pub struct TimedCommand {
+  /// Seconds after the sequence began.
+  pub at: f64,
+  pub method: String,
+  pub params: serde_json::Value,
+}
+
+/// Stream a batch of commands over a **single** connection, honouring each
+/// item's scheduled offset.
+///
+/// Input events exist to reproduce human timing, and `send` opens a fresh
+/// WebSocket per call — a 40-event mouse path would spend far more time in
+/// connection setup than in the intervals being simulated, destroying the very
+/// cadence we generated. Offsets are scheduled against one absolute start
+/// instant so send/drain latency can't accumulate into drift.
+pub async fn send_timed_sequence(ws_url: &str, commands: &[TimedCommand]) -> Result<(), String> {
+  if commands.is_empty() {
+    return Ok(());
+  }
+
+  let (mut ws_stream, _) = connect_async(ws_url)
+    .await
+    .map_err(|e| format!("Failed to connect to CDP WebSocket: {e}"))?;
+
+  let start = tokio::time::Instant::now();
+
+  for (index, command) in commands.iter().enumerate() {
+    tokio::time::sleep_until(start + std::time::Duration::from_secs_f64(command.at.max(0.0))).await;
+
+    let payload = serde_json::json!({
+      "id": index + 1,
+      "method": command.method,
+      "params": command.params,
+    });
+
+    ws_stream
+      .send(Message::Text(payload.to_string().into()))
+      .await
+      .map_err(|e| format!("Failed to send {}: {e}", command.method))?;
+
+    // Drain the acknowledgement so the socket doesn't back up. Guarded by a
+    // timeout: a missing reply must not stall the whole sequence.
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), ws_stream.next()).await;
+  }
+
+  Ok(())
+}
+
 /// Evaluate JS in the page and return the raw `Runtime.evaluate` result,
 /// surfacing thrown exceptions as errors.
 pub async fn evaluate(ws_url: &str, expression: &str) -> Result<serde_json::Value, String> {

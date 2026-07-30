@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use crate::automation::cdp;
 use crate::automation::scenario::{substitute, Scenario, ScrollDirection, Step, MAX_CONCURRENCY};
 use crate::automation::storage::ScenarioStore;
+use crate::human_mouse;
 use crate::profile::{BrowserProfile, ProfileManager};
 use crate::proxy_manager::now_secs;
 
@@ -448,6 +449,11 @@ async fn run_one_profile(
 
   let ws_url = cdp::ws_url_for_profile(profile).await?;
 
+  // One cursor for the whole run, so each movement continues from where the
+  // pointer already was.
+  let (viewport_width, viewport_height) = viewport_size(&ws_url).await?;
+  let mut cursor = PageCursor::new(viewport_width, viewport_height);
+
   let screenshot_dir = crate::app_dirs::data_subdir()
     .join("automation_screenshots")
     .join(run_id);
@@ -501,7 +507,7 @@ async fn run_one_profile(
         }
         with_profile(run_id, index, |p| p.waiting_until = None);
       }
-      other => execute_step(&ws_url, other, variables, cancel).await?,
+      other => execute_step(&ws_url, &mut cursor, other, variables, cancel).await?,
     }
   }
 
@@ -510,6 +516,7 @@ async fn run_one_profile(
 
 async fn execute_step(
   ws_url: &str,
+  cursor: &mut PageCursor,
   step: &Step,
   variables: &HashMap<String, String>,
   cancel: &Arc<AtomicBool>,
@@ -535,7 +542,7 @@ async fn execute_step(
       direction,
       min_steps,
       max_steps,
-    } => scroll_page(ws_url, *direction, *min_steps, *max_steps, cancel).await,
+    } => scroll_page(ws_url, cursor, *direction, *min_steps, *max_steps, cancel).await,
     Step::ClickRandomLink {
       same_domain_only,
       exclude_patterns,
@@ -544,6 +551,7 @@ async fn execute_step(
     } => {
       click_random_link(
         ws_url,
+        cursor,
         *same_domain_only,
         exclude_patterns,
         *wait_for_load,
@@ -582,83 +590,254 @@ async fn wait_for_ready_state(
   }
 }
 
-async fn scroll_page(
-  ws_url: &str,
-  direction: ScrollDirection,
-  min_steps: u32,
-  max_steps: u32,
-  cancel: &Arc<AtomicBool>,
-) -> Result<(), String> {
-  let viewport = cdp::evaluate(
+/// The pointer, as the page sees it.
+///
+/// Kept for the whole run so successive movements start from wherever the cursor
+/// actually is. A fresh teleport before every action would look like a new hand
+/// materialising each time.
+struct PageCursor {
+  position: human_mouse::Point,
+}
+
+impl PageCursor {
+  /// Start somewhere plausible in the upper-middle of the viewport, as if the
+  /// window had just been focused with the pointer already resting on it.
+  fn new(viewport_width: f64, viewport_height: f64) -> Self {
+    let (x, y) = {
+      let mut rng = rand::rng();
+      (
+        rng.random_range(viewport_width * 0.25..viewport_width * 0.75),
+        rng.random_range(viewport_height * 0.2..viewport_height * 0.6),
+      )
+    };
+    Self {
+      position: human_mouse::Point::new(x, y),
+    }
+  }
+
+  /// Walk to `target` along a generated path, one socket for the whole motion.
+  async fn move_to(&mut self, ws_url: &str, target: human_mouse::Point) -> Result<(), String> {
+    let samples = human_mouse::generate_move(self.position, target);
+    let commands: Vec<cdp::TimedCommand> = samples
+      .iter()
+      .map(|sample| cdp::TimedCommand {
+        at: sample.time,
+        method: "Input.dispatchMouseEvent".to_string(),
+        params: serde_json::json!({
+          "type": "mouseMoved",
+          "x": sample.x,
+          "y": sample.y,
+          "buttons": 0,
+          "pointerType": "mouse",
+        }),
+      })
+      .collect();
+
+    cdp::send_timed_sequence(ws_url, &commands).await?;
+    self.position = target;
+    Ok(())
+  }
+
+  /// Move to `target`, settle, then press and release.
+  ///
+  /// The approach, the pause and the button events go out as one scheduled
+  /// sequence so the gap between arriving and pressing is the generated human
+  /// delay rather than however long a new WebSocket handshake happened to take.
+  async fn click_at(&mut self, ws_url: &str, target: human_mouse::Point) -> Result<(), String> {
+    let samples = human_mouse::generate_move(self.position, target);
+    let arrival = samples.last().map(|s| s.time).unwrap_or(0.0);
+    let press_at = arrival + human_mouse::settle_before_press_secs();
+    let release_at = press_at + human_mouse::press_hold_secs();
+
+    let mut commands: Vec<cdp::TimedCommand> = samples
+      .iter()
+      .map(|sample| cdp::TimedCommand {
+        at: sample.time,
+        method: "Input.dispatchMouseEvent".to_string(),
+        params: serde_json::json!({
+          "type": "mouseMoved",
+          "x": sample.x,
+          "y": sample.y,
+          "buttons": 0,
+          "pointerType": "mouse",
+        }),
+      })
+      .collect();
+
+    commands.push(cdp::TimedCommand {
+      at: press_at,
+      method: "Input.dispatchMouseEvent".to_string(),
+      params: serde_json::json!({
+        "type": "mousePressed",
+        "x": target.x,
+        "y": target.y,
+        "button": "left",
+        "buttons": 1,
+        "clickCount": 1,
+        "pointerType": "mouse",
+      }),
+    });
+    commands.push(cdp::TimedCommand {
+      at: release_at,
+      method: "Input.dispatchMouseEvent".to_string(),
+      params: serde_json::json!({
+        "type": "mouseReleased",
+        "x": target.x,
+        "y": target.y,
+        "button": "left",
+        "buttons": 0,
+        "clickCount": 1,
+        "pointerType": "mouse",
+      }),
+    });
+
+    cdp::send_timed_sequence(ws_url, &commands).await?;
+    self.position = target;
+    Ok(())
+  }
+
+  /// Emit wheel ticks at the cursor, drifting slightly between them — a resting
+  /// hand still moves, and wheel events arriving from a pixel-perfect fixed
+  /// point are their own tell.
+  async fn wheel(
+    &mut self,
+    ws_url: &str,
+    ticks: &[f64],
+    viewport_width: f64,
+    viewport_height: f64,
+  ) -> Result<(), String> {
+    let mut commands = Vec::new();
+    let mut clock = 0.0;
+    let mut position = self.position;
+
+    for delta in ticks {
+      let (drift_x, drift_y, gap) = {
+        let mut rng = rand::rng();
+        (
+          rng.random_range(-3.0..3.0),
+          rng.random_range(-3.0..3.0),
+          rng.random_range(0.35..1.5),
+        )
+      };
+      position = human_mouse::Point::new(
+        (position.x + drift_x).clamp(1.0, viewport_width - 2.0),
+        (position.y + drift_y).clamp(1.0, viewport_height - 2.0),
+      );
+
+      commands.push(cdp::TimedCommand {
+        at: clock,
+        method: "Input.dispatchMouseEvent".to_string(),
+        params: serde_json::json!({
+          "type": "mouseMoved",
+          "x": position.x,
+          "y": position.y,
+          "buttons": 0,
+          "pointerType": "mouse",
+        }),
+      });
+      commands.push(cdp::TimedCommand {
+        at: clock + 0.02,
+        method: "Input.dispatchMouseEvent".to_string(),
+        params: serde_json::json!({
+          "type": "mouseWheel",
+          "x": position.x,
+          "y": position.y,
+          "deltaX": 0,
+          "deltaY": delta,
+          "pointerType": "mouse",
+        }),
+      });
+
+      clock += gap;
+    }
+
+    cdp::send_timed_sequence(ws_url, &commands).await?;
+    self.position = position;
+    Ok(())
+  }
+}
+
+/// Viewport size in CSS pixels.
+async fn viewport_size(ws_url: &str) -> Result<(f64, f64), String> {
+  let raw = cdp::evaluate(
     ws_url,
     "JSON.stringify([window.innerWidth, window.innerHeight])",
   )
   .await?;
-  let dims: Vec<f64> = viewport
+  let dims: Vec<f64> = raw
     .as_str()
     .and_then(|s| serde_json::from_str(s).ok())
     .unwrap_or_else(|| vec![1280.0, 800.0]);
-  let width = dims.first().copied().unwrap_or(1280.0).max(1.0);
-  let height = dims.get(1).copied().unwrap_or(800.0).max(1.0);
+  Ok((
+    dims.first().copied().unwrap_or(1280.0).max(1.0),
+    dims.get(1).copied().unwrap_or(800.0).max(1.0),
+  ))
+}
 
-  let steps = random_in_range(min_steps as u64, max_steps as u64);
-
-  for _ in 0..steps {
-    if cancel.load(Ordering::SeqCst) {
-      return Err("cancelled".to_string());
-    }
-
-    // Sample everything before awaiting — ThreadRng is not Send.
-    let (x, y, delta, pause_ms) = {
-      let mut rng = rand::rng();
+/// Randomised wheel magnitudes for a scroll burst.
+fn wheel_ticks(direction: ScrollDirection, count: u64, viewport_height: f64) -> Vec<f64> {
+  let mut rng = rand::rng();
+  (0..count)
+    .map(|_| {
       let down = match direction {
         ScrollDirection::Down => true,
         ScrollDirection::Up => false,
         ScrollDirection::Random => rng.random::<bool>(),
       };
-      let magnitude = rng.random_range(120.0..(height * 0.8).max(200.0));
-      (
-        rng.random_range(width * 0.2..width * 0.8),
-        rng.random_range(height * 0.2..height * 0.8),
-        if down { magnitude } else { -magnitude },
-        rng.random_range(350u64..1500u64),
-      )
-    };
-
-    cdp::send(
-      ws_url,
-      "Input.dispatchMouseEvent",
-      serde_json::json!({
-        "type": "mouseWheel",
-        "x": x,
-        "y": y,
-        "deltaX": 0,
-        "deltaY": delta,
-        "pointerType": "mouse",
-      }),
-    )
-    .await?;
-
-    if !sleep_cancellable(std::time::Duration::from_millis(pause_ms), cancel).await {
-      return Err("cancelled".to_string());
-    }
-  }
-
-  Ok(())
+      let magnitude = rng.random_range(120.0..(viewport_height * 0.8).max(200.0));
+      if down {
+        magnitude
+      } else {
+        -magnitude
+      }
+    })
+    .collect()
 }
 
-/// JS that picks one eligible anchor at random, brings it into view, and reports
-/// its viewport centre so the click can be dispatched as real input.
+async fn scroll_page(
+  ws_url: &str,
+  cursor: &mut PageCursor,
+  direction: ScrollDirection,
+  min_steps: u32,
+  max_steps: u32,
+  cancel: &Arc<AtomicBool>,
+) -> Result<(), String> {
+  if cancel.load(Ordering::SeqCst) {
+    return Err("cancelled".to_string());
+  }
+
+  let (width, height) = viewport_size(ws_url).await?;
+
+  // Move somewhere over the content before scrolling, the way a hand settles on
+  // the page first.
+  let resting = {
+    let mut rng = rand::rng();
+    human_mouse::Point::new(
+      rng.random_range(width * 0.25..width * 0.75),
+      rng.random_range(height * 0.25..height * 0.7),
+    )
+  };
+  cursor.move_to(ws_url, resting).await?;
+
+  let count = random_in_range(min_steps as u64, max_steps as u64);
+  let ticks = wheel_ticks(direction, count, height);
+  cursor.wheel(ws_url, &ticks, width, height).await
+}
+
+/// Pick one eligible anchor at random and tag it on `window.__donut_link` so its
+/// geometry can be re-read later without re-running the selection.
 const PICK_LINK_JS: &str = r#"
 (() => {
   const sameDomainOnly = __SAME_DOMAIN__;
   const excludes = __EXCLUDES__;
+  const tried = __TRIED__;
   const here = location.hostname;
 
   const candidates = Array.from(document.querySelectorAll('a[href]')).filter((a) => {
     const href = a.href;
     if (!href.startsWith('http://') && !href.startsWith('https://')) return false;
     if (href.replace(/#.*$/, '') === location.href.replace(/#.*$/, '')) return false;
+    if (tried.includes(href)) return false;
     let host;
     try { host = new URL(href).hostname; } catch { return false; }
     if (sameDomainOnly && host !== here) return false;
@@ -676,22 +855,159 @@ const PICK_LINK_JS: &str = r#"
   const link = candidates[Math.floor(Math.random() * candidates.length)];
   // Keep the journey in one tab; a popup would leave the automated tab behind.
   link.removeAttribute('target');
-  link.scrollIntoView({ block: 'center', inline: 'center' });
+  window.__donut_link = link;
+  return JSON.stringify({ ok: true, href: link.href });
+})()
+"#;
+
+/// Re-read the tagged link's live geometry and check that a click at its centre
+/// would actually reach it.
+///
+/// Measuring at click time is the point: pages move under us constantly (lazy
+/// images, sticky headers, injected ads), so coordinates captured even a few
+/// hundred milliseconds earlier can address a different element entirely.
+const MEASURE_LINK_JS: &str = r#"
+(() => {
+  const link = window.__donut_link;
+  if (!link || !link.isConnected) return JSON.stringify({ ok: false });
+
   const rect = link.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const inViewport =
+    rect.top >= 0 && rect.left >= 0 &&
+    rect.bottom <= window.innerHeight && rect.right <= window.innerWidth &&
+    rect.width >= 4 && rect.height >= 4;
+
+  let hit = false;
+  if (inViewport) {
+    const at = document.elementFromPoint(cx, cy);
+    hit = at !== null && (at === link || link.contains(at) || at.contains(link));
+  }
+
   return JSON.stringify({
     ok: true,
     href: link.href,
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2,
-    inViewport:
-      rect.top >= 0 && rect.left >= 0 &&
-      rect.bottom <= window.innerHeight && rect.right <= window.innerWidth,
+    inViewport,
+    hit,
+    rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    // How far the link centre sits from the viewport centre, so the caller can
+    // wheel towards it instead of jumping the scroll position programmatically.
+    offsetFromCenter: cy - window.innerHeight / 2,
   });
 })()
 "#;
 
+/// How many different links to try before giving up on the step.
+const MAX_LINK_ATTEMPTS: usize = 3;
+/// Cap on wheel bursts spent bringing one link into view.
+const MAX_SCROLL_INTO_VIEW_BURSTS: usize = 12;
+
+#[derive(Debug, Clone)]
+struct LinkMeasurement {
+  in_viewport: bool,
+  hit: bool,
+  rect: human_mouse::Rect,
+  viewport: (f64, f64),
+  offset_from_center: f64,
+}
+
+async fn measure_tagged_link(ws_url: &str) -> Result<Option<LinkMeasurement>, String> {
+  let raw = cdp::evaluate(ws_url, MEASURE_LINK_JS).await?;
+  let parsed: serde_json::Value = raw
+    .as_str()
+    .and_then(|s| serde_json::from_str(s).ok())
+    .unwrap_or(serde_json::json!({ "ok": false }));
+
+  if parsed.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+    return Ok(None);
+  }
+
+  let number = |value: Option<&serde_json::Value>| value.and_then(|v| v.as_f64()).unwrap_or(0.0);
+  let rect = parsed.get("rect");
+
+  Ok(Some(LinkMeasurement {
+    in_viewport: parsed
+      .get("inViewport")
+      .and_then(|v| v.as_bool())
+      .unwrap_or(false),
+    hit: parsed.get("hit").and_then(|v| v.as_bool()).unwrap_or(false),
+    rect: human_mouse::Rect {
+      x: number(rect.and_then(|r| r.get("x"))),
+      y: number(rect.and_then(|r| r.get("y"))),
+      width: number(rect.and_then(|r| r.get("width"))),
+      height: number(rect.and_then(|r| r.get("height"))),
+    },
+    viewport: (
+      number(parsed.get("viewport").and_then(|v| v.get("width"))).max(1.0),
+      number(parsed.get("viewport").and_then(|v| v.get("height"))).max(1.0),
+    ),
+    offset_from_center: number(parsed.get("offsetFromCenter")),
+  }))
+}
+
+/// Wheel the tagged link into view. Deliberately not `scrollIntoView()`: that
+/// jumps the scroll position with no input events behind it, which is both
+/// unlike a person and inconsistent with every other motion we emit.
+async fn wheel_link_into_view(
+  ws_url: &str,
+  cursor: &mut PageCursor,
+  cancel: &Arc<AtomicBool>,
+) -> Result<Option<LinkMeasurement>, String> {
+  for burst in 0..MAX_SCROLL_INTO_VIEW_BURSTS {
+    if cancel.load(Ordering::SeqCst) {
+      return Err("cancelled".to_string());
+    }
+
+    let Some(measurement) = measure_tagged_link(ws_url).await? else {
+      return Ok(None);
+    };
+    if measurement.in_viewport {
+      return Ok(Some(measurement));
+    }
+
+    let (width, height) = measurement.viewport;
+    if burst == 0 {
+      let resting = {
+        let mut rng = rand::rng();
+        human_mouse::Point::new(
+          rng.random_range(width * 0.3..width * 0.7),
+          rng.random_range(height * 0.3..height * 0.6),
+        )
+      };
+      cursor.move_to(ws_url, resting).await?;
+    }
+
+    // Cover at most ~70% of the remaining gap per burst so we ease in rather
+    // than slamming the target to the edge of the viewport.
+    let remaining = measurement.offset_from_center;
+    let ticks = {
+      let mut rng = rand::rng();
+      let budget = (remaining.abs() * 0.7).clamp(80.0, height * 2.0);
+      let mut spent = 0.0;
+      let mut ticks = Vec::new();
+      while spent < budget && ticks.len() < 8 {
+        let magnitude = rng.random_range(90.0..(height * 0.55).max(140.0));
+        spent += magnitude;
+        ticks.push(if remaining > 0.0 {
+          magnitude
+        } else {
+          -magnitude
+        });
+      }
+      ticks
+    };
+
+    cursor.wheel(ws_url, &ticks, width, height).await?;
+  }
+
+  measure_tagged_link(ws_url).await
+}
+
 async fn click_random_link(
   ws_url: &str,
+  cursor: &mut PageCursor,
   same_domain_only: bool,
   exclude_patterns: &[String],
   wait_for_load: bool,
@@ -699,91 +1015,86 @@ async fn click_random_link(
   cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
   let excludes: Vec<String> = exclude_patterns.iter().map(|p| p.to_lowercase()).collect();
-  let js = PICK_LINK_JS
-    .replace(
-      "__SAME_DOMAIN__",
-      if same_domain_only { "true" } else { "false" },
-    )
-    .replace(
-      "__EXCLUDES__",
-      &serde_json::to_string(&excludes).unwrap_or_else(|_| "[]".to_string()),
+  let mut tried: Vec<String> = Vec::new();
+
+  for attempt in 1..=MAX_LINK_ATTEMPTS {
+    if cancel.load(Ordering::SeqCst) {
+      return Err("cancelled".to_string());
+    }
+
+    // `document.readyState` is a useless "did we navigate?" signal on its own:
+    // right after a click it still reads `complete` for the *old* page. The URL
+    // is what actually proves the page moved.
+    let url_before = cdp::evaluate(ws_url, "location.href")
+      .await?
+      .as_str()
+      .unwrap_or_default()
+      .to_string();
+
+    let js = PICK_LINK_JS
+      .replace(
+        "__SAME_DOMAIN__",
+        if same_domain_only { "true" } else { "false" },
+      )
+      .replace(
+        "__EXCLUDES__",
+        &serde_json::to_string(&excludes).unwrap_or_else(|_| "[]".to_string()),
+      )
+      .replace(
+        "__TRIED__",
+        &serde_json::to_string(&tried).unwrap_or_else(|_| "[]".to_string()),
+      );
+
+    let picked = cdp::evaluate(ws_url, &js).await?;
+    let picked: serde_json::Value = picked
+      .as_str()
+      .and_then(|s| serde_json::from_str(s).ok())
+      .unwrap_or(serde_json::json!({ "ok": false }));
+
+    if picked.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+      return Err(serde_json::json!({ "code": "AUTOMATION_NO_LINK_FOUND" }).to_string());
+    }
+
+    let href = picked
+      .get("href")
+      .and_then(|v| v.as_str())
+      .unwrap_or_default()
+      .to_string();
+    tried.push(href.clone());
+
+    let Some(measurement) = wheel_link_into_view(ws_url, cursor, cancel).await? else {
+      log::info!("[automation] link {href} vanished before it could be clicked");
+      continue;
+    };
+
+    if !measurement.in_viewport || !measurement.hit {
+      // Something is covering it, or it moved out from under us. Another link is
+      // a better bet than clicking coordinates we know are wrong.
+      log::info!(
+        "[automation] link {href} not clickable (in_viewport={}, hit={}), trying another",
+        measurement.in_viewport,
+        measurement.hit
+      );
+      continue;
+    }
+
+    let target = human_mouse::sample_click_point(measurement.rect);
+    cursor.click_at(ws_url, target).await?;
+
+    if !wait_for_load {
+      return Ok(());
+    }
+
+    if wait_for_url_change(ws_url, &url_before, timeout_secs, cancel).await? {
+      return wait_for_ready_state(ws_url, timeout_secs, cancel).await;
+    }
+
+    log::info!(
+      "[automation] click on {href} did not navigate (attempt {attempt}/{MAX_LINK_ATTEMPTS})"
     );
-
-  // Remember where we are before clicking. `document.readyState` is a useless
-  // "did we navigate?" signal on its own — right after a click it still reads
-  // `complete` for the *old* page, so the next step would run on the page we
-  // meant to leave. Comparing the URL is what actually proves the navigation.
-  let url_before = cdp::evaluate(ws_url, "location.href")
-    .await?
-    .as_str()
-    .unwrap_or_default()
-    .to_string();
-
-  let picked = cdp::evaluate(ws_url, &js).await?;
-  let picked: serde_json::Value = picked
-    .as_str()
-    .and_then(|s| serde_json::from_str(s).ok())
-    .unwrap_or(serde_json::json!({ "ok": false }));
-
-  if picked.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-    return Err(serde_json::json!({ "code": "AUTOMATION_NO_LINK_FOUND" }).to_string());
   }
 
-  let href = picked
-    .get("href")
-    .and_then(|v| v.as_str())
-    .unwrap_or_default()
-    .to_string();
-  let x = picked.get("x").and_then(|v| v.as_f64()).unwrap_or(-1.0);
-  let y = picked.get("y").and_then(|v| v.as_f64()).unwrap_or(-1.0);
-  let in_viewport = picked
-    .get("inViewport")
-    .and_then(|v| v.as_bool())
-    .unwrap_or(false);
-
-  // Let the smooth scroll settle before aiming at the element.
-  if !sleep_cancellable(std::time::Duration::from_millis(400), cancel).await {
-    return Err("cancelled".to_string());
-  }
-
-  let clicked = in_viewport && x >= 0.0 && y >= 0.0;
-  if clicked {
-    dispatch_click(ws_url, x, y, wait_for_load, timeout_secs).await?;
-  } else {
-    // Off-screen or unmeasurable after scrolling — navigate directly rather
-    // than clicking coordinates that may belong to another element.
-    log::info!("[automation] link not clickable in viewport, navigating to {href}");
-    navigate_to(ws_url, &href, wait_for_load, timeout_secs).await?;
-  }
-
-  if !wait_for_load {
-    return Ok(());
-  }
-
-  // A click can be swallowed by an overlay, a JS handler that calls
-  // preventDefault, or coordinates that landed on the wrong element. If the URL
-  // never moved, navigate to the href we picked so the scenario still advances.
-  if clicked && !wait_for_url_change(ws_url, &url_before, timeout_secs, cancel).await? {
-    log::info!("[automation] click did not navigate, falling back to {href}");
-    navigate_to(ws_url, &href, true, timeout_secs).await?;
-  }
-
-  wait_for_ready_state(ws_url, timeout_secs, cancel).await
-}
-
-async fn navigate_to(
-  ws_url: &str,
-  url: &str,
-  wait_for_load: bool,
-  timeout_secs: u64,
-) -> Result<(), String> {
-  let params = serde_json::json!({ "url": url });
-  if wait_for_load {
-    cdp::send_and_wait_for_load(ws_url, "Page.navigate", params, timeout_secs).await?;
-  } else {
-    cdp::send(ws_url, "Page.navigate", params).await?;
-  }
-  Ok(())
+  Err(serde_json::json!({ "code": "AUTOMATION_LINK_CLICK_FAILED" }).to_string())
 }
 
 /// Poll `location.href` until it differs from `previous`. Returns whether the
@@ -808,66 +1119,6 @@ async fn wait_for_url_change(
     }
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
   }
-}
-
-async fn dispatch_click(
-  ws_url: &str,
-  x: f64,
-  y: f64,
-  wait_for_load: bool,
-  timeout_secs: u64,
-) -> Result<(), String> {
-  cdp::send(
-    ws_url,
-    "Input.dispatchMouseEvent",
-    serde_json::json!({ "type": "mouseMoved", "x": x, "y": y, "pointerType": "mouse" }),
-  )
-  .await?;
-
-  let hold_ms = {
-    let mut rng = rand::rng();
-    rng.random_range(60u64..180u64)
-  };
-  tokio::time::sleep(std::time::Duration::from_millis(hold_ms)).await;
-
-  cdp::send(
-    ws_url,
-    "Input.dispatchMouseEvent",
-    serde_json::json!({
-      "type": "mousePressed",
-      "x": x,
-      "y": y,
-      "button": "left",
-      "buttons": 1,
-      "clickCount": 1,
-      "pointerType": "mouse",
-    }),
-  )
-  .await?;
-
-  let release_params = serde_json::json!({
-    "type": "mouseReleased",
-    "x": x,
-    "y": y,
-    "button": "left",
-    "buttons": 0,
-    "clickCount": 1,
-    "pointerType": "mouse",
-  });
-
-  if wait_for_load {
-    cdp::send_and_wait_for_load(
-      ws_url,
-      "Input.dispatchMouseEvent",
-      release_params,
-      timeout_secs,
-    )
-    .await?;
-  } else {
-    cdp::send(ws_url, "Input.dispatchMouseEvent", release_params).await?;
-  }
-
-  Ok(())
 }
 
 async fn capture_screenshot(
@@ -972,6 +1223,90 @@ mod tests {
   fn sanitize_filename_strips_path_separators() {
     assert_eq!(sanitize_filename("../my profile/1"), "___my_profile_1");
     assert_eq!(sanitize_filename("Keep-me_9"), "Keep-me_9");
+  }
+
+  #[test]
+  fn a_fresh_cursor_starts_inside_the_viewport() {
+    for _ in 0..100 {
+      let cursor = PageCursor::new(1280.0, 800.0);
+      assert!(
+        cursor.position.x > 0.0 && cursor.position.x < 1280.0,
+        "x {} outside viewport",
+        cursor.position.x
+      );
+      assert!(
+        cursor.position.y > 0.0 && cursor.position.y < 800.0,
+        "y {} outside viewport",
+        cursor.position.y
+      );
+    }
+  }
+
+  #[test]
+  fn wheel_ticks_all_point_the_requested_way() {
+    for _ in 0..20 {
+      assert!(
+        wheel_ticks(ScrollDirection::Down, 6, 800.0)
+          .iter()
+          .all(|d| *d > 0.0),
+        "down must scroll down"
+      );
+      assert!(
+        wheel_ticks(ScrollDirection::Up, 6, 800.0)
+          .iter()
+          .all(|d| *d < 0.0),
+        "up must scroll up"
+      );
+    }
+  }
+
+  #[test]
+  fn random_direction_eventually_produces_both_ways() {
+    let ticks = wheel_ticks(ScrollDirection::Random, 200, 800.0);
+    assert!(ticks.iter().any(|d| *d > 0.0), "no downward tick");
+    assert!(ticks.iter().any(|d| *d < 0.0), "no upward tick");
+  }
+
+  #[test]
+  fn wheel_tick_count_matches_the_request() {
+    assert_eq!(wheel_ticks(ScrollDirection::Down, 0, 800.0).len(), 0);
+    assert_eq!(wheel_ticks(ScrollDirection::Down, 7, 800.0).len(), 7);
+  }
+
+  #[test]
+  fn the_link_picker_js_receives_every_placeholder() {
+    // A missed placeholder would reach the page as a literal `__TRIED__` and
+    // throw at evaluation time rather than failing here.
+    let filled = PICK_LINK_JS
+      .replace("__SAME_DOMAIN__", "true")
+      .replace("__EXCLUDES__", "[]")
+      .replace("__TRIED__", "[]");
+    for placeholder in ["__SAME_DOMAIN__", "__EXCLUDES__", "__TRIED__"] {
+      assert!(
+        !filled.contains(placeholder),
+        "{placeholder} was left unsubstituted in the link picker JS"
+      );
+    }
+  }
+
+  #[test]
+  fn the_link_scripts_never_use_scroll_into_view() {
+    // Scrolling must go through wheel events; scrollIntoView jumps the page with
+    // no input behind it, which is exactly the tell we removed.
+    for js in [PICK_LINK_JS, MEASURE_LINK_JS] {
+      assert!(
+        !js.contains("scrollIntoView"),
+        "link scripts must not jump the scroll position"
+      );
+    }
+  }
+
+  #[test]
+  fn the_measure_script_hit_tests_before_we_click() {
+    assert!(
+      MEASURE_LINK_JS.contains("elementFromPoint"),
+      "the click target must be hit-tested so overlays are caught"
+    );
   }
 
   fn run_request_json(value: serde_json::Value) -> Result<RunRequest, serde_json::Error> {

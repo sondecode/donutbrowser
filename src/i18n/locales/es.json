@@ -1858,7 +1858,8 @@
     "automationProfileNotChromium": "El perfil \"{{name}}\" no es un perfil Chromium, así que no se puede automatizar.",
     "automationProfileAlreadyRunning": "El perfil \"{{name}}\" ya está en ejecución. Detenlo antes de automatizar.",
     "automationNoLinkFound": "No se encontró ningún enlace adecuado en la página.",
-    "automationNoEligibleProfiles": "Ninguno de los perfiles indicados puede automatizarse ahora."
+    "automationNoEligibleProfiles": "Ninguno de los perfiles indicados puede automatizarse ahora.",
+    "automationLinkClickFailed": "Se hizo clic en los enlaces encontrados en la página, pero ninguno navegó a ningún sitio."
   },
   "rail": {
     "profiles": "Perfiles",

@@ -1858,7 +1858,8 @@
     "automationProfileNotChromium": "Profile \"{{name}}\" isn't a Chromium profile, so it can't be automated.",
     "automationProfileAlreadyRunning": "Profile \"{{name}}\" is already running. Stop it before automating.",
     "automationNoLinkFound": "No suitable link was found on the page.",
-    "automationNoEligibleProfiles": "None of the targeted profiles can be automated right now."
+    "automationNoEligibleProfiles": "None of the targeted profiles can be automated right now.",
+    "automationLinkClickFailed": "Clicked the links found on the page but none of them navigated anywhere."
   },
   "rail": {
     "profiles": "Profiles",

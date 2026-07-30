@@ -113,7 +113,10 @@ impl KeyboardLayout {
   }
 }
 
-fn normal_sample(rng: &mut impl Rng, mean: f64, std_dev: f64) -> f64 {
+/// Shared by the human-behaviour models (typing here, pointer motion in
+/// [`crate::human_mouse`]) — both need Gaussian jitter and there should only be
+/// one implementation of it.
+pub(crate) fn normal_sample(rng: &mut impl Rng, mean: f64, std_dev: f64) -> f64 {
   // Box-Muller transform
   let u1: f64 = rng.random::<f64>().max(1e-10);
   let u2: f64 = rng.random::<f64>();

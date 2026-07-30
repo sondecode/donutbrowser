@@ -1858,7 +1858,8 @@
     "automationProfileNotChromium": "Profile \"{{name}}\" không phải profile Chromium nên không thể tự động hoá.",
     "automationProfileAlreadyRunning": "Profile \"{{name}}\" đang chạy. Hãy tắt nó trước khi tự động hoá.",
     "automationNoLinkFound": "Không tìm thấy link phù hợp trên trang.",
-    "automationNoEligibleProfiles": "Không có profile nào trong số đã chọn có thể tự động hoá ngay lúc này."
+    "automationNoEligibleProfiles": "Không có profile nào trong số đã chọn có thể tự động hoá ngay lúc này.",
+    "automationLinkClickFailed": "Đã click các link tìm được trên trang nhưng không link nào điều hướng đi đâu."
   },
   "rail": {
     "profiles": "Profile",

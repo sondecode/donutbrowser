@@ -1858,7 +1858,8 @@
     "automationProfileNotChromium": "\"{{name}}\" profili bir Chromium profili değil, bu yüzden otomatikleştirilemez.",
     "automationProfileAlreadyRunning": "\"{{name}}\" profili çalışıyor. Otomatikleştirmeden önce durdurun.",
     "automationNoLinkFound": "Sayfada uygun bir bağlantı bulunamadı.",
-    "automationNoEligibleProfiles": "Hedeflenen profillerin hiçbiri şu anda otomatikleştirilemez."
+    "automationNoEligibleProfiles": "Hedeflenen profillerin hiçbiri şu anda otomatikleştirilemez.",
+    "automationLinkClickFailed": "Sayfada bulunan bağlantılara tıklandı ancak hiçbiri bir yere gitmedi."
   },
   "rail": {
     "profiles": "Profiller",
