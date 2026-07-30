@@ -1844,7 +1844,21 @@
     "updateChecksumMismatch": "The downloaded update file {{file}} failed checksum verification and was discarded. Please try again.",
     "nameCannotBeEmpty": "Name cannot be empty",
     "wayfernVersionNotAvailable": "Chromium version {{requested}} is not available for download. The current version is {{current}}.",
-    "systemChromiumNotFound": "Chromium was not found. Install Chromium/Chrome or set DONUT_CHROMIUM_PATH."
+    "systemChromiumNotFound": "Chromium was not found. Install Chromium/Chrome or set DONUT_CHROMIUM_PATH.",
+    "automationScenarioNotFound": "That automation scenario no longer exists.",
+    "automationScenarioAlreadyExists": "A scenario named \"{{name}}\" already exists.",
+    "automationScenarioEmpty": "A scenario needs at least one step.",
+    "automationStepUrlRequired": "Step {{step}} needs a URL.",
+    "automationStepRangeInvalid": "Step {{step}} has a minimum larger than its maximum.",
+    "automationStepDwellTooLong": "Step {{step}} waits longer than the {{max}} hour limit.",
+    "automationRunNotFound": "That automation run no longer exists.",
+    "automationNoProfilesSelected": "Select at least one profile to run.",
+    "automationConcurrencyInvalid": "Concurrency must be between 1 and {{max}}.",
+    "automationJitterRangeInvalid": "The minimum launch delay must not exceed the maximum.",
+    "automationProfileNotChromium": "Profile \"{{name}}\" isn't a Chromium profile, so it can't be automated.",
+    "automationProfileAlreadyRunning": "Profile \"{{name}}\" is already running. Stop it before automating.",
+    "automationNoLinkFound": "No suitable link was found on the page.",
+    "automationNoEligibleProfiles": "None of the targeted profiles can be automated right now."
   },
   "rail": {
     "profiles": "Profiles",
@@ -1861,7 +1875,8 @@
     },
     "network": "Network",
     "integrations": "Integrations",
-    "account": "Account"
+    "account": "Account",
+    "automation": "Automation"
   },
   "pageTitle": {
     "proxies": "Network",
@@ -1872,7 +1887,8 @@
     "integrations": "Integrations",
     "account": "Account",
     "import": "Import profile",
-    "shortcuts": "Keyboard shortcuts"
+    "shortcuts": "Keyboard shortcuts",
+    "automation": "Automation"
   },
   "encryption": {
     "required": {
@@ -1959,7 +1975,8 @@
     "goGroups": "Go to Groups",
     "goIntegrations": "Go to Integrations",
     "goAccount": "Go to Account",
-    "goSettings": "Go to Settings"
+    "goSettings": "Go to Settings",
+    "goAutomation": "Go to Automation"
   },
   "closeConfirm": {
     "title": "Close Donut Browser?",
@@ -2062,5 +2079,96 @@
   },
   "cookieCopy": {
     "noOtherTargets": "No other Chromium profiles selected"
+  },
+  "automation": {
+    "title": "Automation",
+    "description": "Run scripted browsing workflows across your profiles.",
+    "tabScenarios": "Scenarios",
+    "tabRuns": "Runs",
+    "newScenario": "New scenario",
+    "builtIn": "Built-in",
+    "stepCount": "{{count}} steps",
+    "emptyScenarios": "No scenarios yet. Create one to get started.",
+    "emptyRuns": "No runs yet. Start a scenario to see progress here.",
+    "scenarioSaved": "Scenario saved",
+    "scenarioDeleted": "Scenario deleted",
+    "delete": {
+      "title": "Delete scenario",
+      "description": "Delete \"{{name}}\"? This cannot be undone."
+    },
+    "steps": {
+      "navigate": "Opening page",
+      "wait_for_load": "Waiting for load",
+      "scroll": "Scrolling",
+      "click_random_link": "Opening a random link",
+      "dwell": "Staying on page",
+      "screenshot": "Taking screenshot",
+      "close_profile": "Closing profile"
+    },
+    "editor": {
+      "createTitle": "New scenario",
+      "editTitle": "Edit scenario",
+      "description": "Steps are plain JSON — the same format the MCP tools read and write.",
+      "nameLabel": "Name",
+      "namePlaceholder": "Website warmup",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "What this workflow does",
+      "variablesLabel": "Variables",
+      "variablesHint": "Values filled in at run time. Reference them in steps as {{'{{'}}name{{'}}'}}.",
+      "stepsLabel": "Steps",
+      "stepsHint": "Executed top to bottom. The browser launches before the first step and closes after the last.",
+      "invalidJson": "That isn't valid JSON.",
+      "mustBeArray": "Steps and variables must both be JSON arrays.",
+      "referenceTitle": "Step reference"
+    },
+    "run": {
+      "title": "Run {{name}}",
+      "description": "Each selected profile is launched, driven through the steps, then closed.",
+      "variablesLabel": "Variables",
+      "profilesLabel": "Profiles",
+      "profilesHint": "Only Chromium profiles that aren't already running can be automated.",
+      "noEligibleProfiles": "No eligible profiles. Automation needs a Chromium profile that isn't running.",
+      "selectAll": "Select all",
+      "clearSelection": "Clear selection",
+      "concurrencyLabel": "Concurrent profiles",
+      "concurrencyHint": "How many browsers may run at the same time.",
+      "jitterLabel": "Launch delay (seconds)",
+      "jitterMaxAria": "Maximum launch delay in seconds",
+      "jitterHint": "Random wait before each launch, so profiles don't all start at once.",
+      "headlessLabel": "Headless",
+      "headlessHint": "Run without a visible browser window.",
+      "start": "Run on {{count}} profiles",
+      "started": "Automation started on {{count}} profiles",
+      "targetLabel": "Target",
+      "mode": {
+        "individual": "Individual profiles",
+        "group": "Whole group"
+      },
+      "groupHint": "Every profile in the group that can be automated right now will run. Members that aren't Chromium or are already running are skipped.",
+      "groupPlaceholder": "Choose a group",
+      "groupOption": "{{name}} ({{count}} available)",
+      "groupHasNoEligible": "No profile in this group can be automated right now.",
+      "noGroups": "No profile groups yet. Create one to run a whole group at once."
+    },
+    "runs": {
+      "notStarted": "Not started",
+      "step": "Step {{current}}/{{total}}: {{name}}",
+      "waiting": "{{seconds}}s left",
+      "summary": "{{finished}}/{{total}} finished · {{concurrency}} at a time",
+      "cancelRun": "Stop",
+      "cancelRequested": "Stopping automation",
+      "status": {
+        "running": "Running",
+        "completed": "Completed",
+        "cancelled": "Cancelled"
+      },
+      "profileStatus": {
+        "pending": "Queued",
+        "running": "Running",
+        "completed": "Done",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      }
+    }
   }
 }

@@ -1844,7 +1844,21 @@
     "updateChecksumMismatch": "Загруженный файл обновления {{file}} не прошёл проверку контрольной суммы и был удалён. Попробуйте ещё раз.",
     "nameCannotBeEmpty": "Имя не может быть пустым",
     "wayfernVersionNotAvailable": "Версия Chromium {{requested}} недоступна для загрузки. Текущая версия — {{current}}.",
-    "systemChromiumNotFound": "Chromium не найден. Установите Chromium/Chrome или задайте DONUT_CHROMIUM_PATH."
+    "systemChromiumNotFound": "Chromium не найден. Установите Chromium/Chrome или задайте DONUT_CHROMIUM_PATH.",
+    "automationScenarioNotFound": "Этот сценарий автоматизации больше не существует.",
+    "automationScenarioAlreadyExists": "Сценарий с названием «{{name}}» уже существует.",
+    "automationScenarioEmpty": "В сценарии должен быть хотя бы один шаг.",
+    "automationStepUrlRequired": "Шагу {{step}} нужен URL.",
+    "automationStepRangeInvalid": "У шага {{step}} минимум больше максимума.",
+    "automationStepDwellTooLong": "Шаг {{step}} ждёт дольше предела в {{max}} ч.",
+    "automationRunNotFound": "Этот запуск автоматизации больше не существует.",
+    "automationNoProfilesSelected": "Выберите хотя бы один профиль для запуска.",
+    "automationConcurrencyInvalid": "Число одновременных запусков должно быть от 1 до {{max}}.",
+    "automationJitterRangeInvalid": "Минимальная задержка запуска не может превышать максимальную.",
+    "automationProfileNotChromium": "Профиль «{{name}}» не является профилем Chromium, поэтому его нельзя автоматизировать.",
+    "automationProfileAlreadyRunning": "Профиль «{{name}}» уже запущен. Остановите его перед автоматизацией.",
+    "automationNoLinkFound": "На странице не найдено подходящих ссылок.",
+    "automationNoEligibleProfiles": "Ни один из выбранных профилей сейчас нельзя автоматизировать."
   },
   "rail": {
     "profiles": "Профили",
@@ -1861,7 +1875,8 @@
     },
     "network": "Сеть",
     "integrations": "Интеграции",
-    "account": "Аккаунт"
+    "account": "Аккаунт",
+    "automation": "Автоматизация"
   },
   "pageTitle": {
     "proxies": "Сеть",
@@ -1872,7 +1887,8 @@
     "integrations": "Интеграции",
     "account": "Аккаунт",
     "import": "Импорт профиля",
-    "shortcuts": "Сочетания клавиш"
+    "shortcuts": "Сочетания клавиш",
+    "automation": "Автоматизация"
   },
   "encryption": {
     "required": {
@@ -1959,7 +1975,8 @@
     "goGroups": "Перейти к Группам",
     "goIntegrations": "Перейти к Интеграциям",
     "goAccount": "Перейти к Аккаунту",
-    "goSettings": "Перейти к Настройкам"
+    "goSettings": "Перейти к Настройкам",
+    "goAutomation": "Перейти к автоматизации"
   },
   "closeConfirm": {
     "title": "Закрыть Donut Browser?",
@@ -2062,5 +2079,96 @@
   },
   "cookieCopy": {
     "noOtherTargets": "Других выбранных Chromium профилей нет"
+  },
+  "automation": {
+    "title": "Автоматизация",
+    "description": "Запускайте сценарии просмотра сайтов сразу для нескольких профилей.",
+    "tabScenarios": "Сценарии",
+    "tabRuns": "Запуски",
+    "newScenario": "Новый сценарий",
+    "builtIn": "Встроенный",
+    "stepCount": "Шагов: {{count}}",
+    "emptyScenarios": "Сценариев пока нет. Создайте первый, чтобы начать.",
+    "emptyRuns": "Запусков пока нет. Запустите сценарий, и прогресс появится здесь.",
+    "scenarioSaved": "Сценарий сохранён",
+    "scenarioDeleted": "Сценарий удалён",
+    "delete": {
+      "title": "Удалить сценарий",
+      "description": "Удалить «{{name}}»? Это действие необратимо."
+    },
+    "steps": {
+      "navigate": "Открытие страницы",
+      "wait_for_load": "Ожидание загрузки",
+      "scroll": "Прокрутка",
+      "click_random_link": "Открытие случайной ссылки",
+      "dwell": "Пребывание на странице",
+      "screenshot": "Создание снимка экрана",
+      "close_profile": "Закрытие профиля"
+    },
+    "editor": {
+      "createTitle": "Новый сценарий",
+      "editTitle": "Изменить сценарий",
+      "description": "Шаги — это обычный JSON, тот же формат, который читают и пишут инструменты MCP.",
+      "nameLabel": "Название",
+      "namePlaceholder": "Прогрев сайта",
+      "descriptionLabel": "Описание",
+      "descriptionPlaceholder": "Что делает этот сценарий",
+      "variablesLabel": "Переменные",
+      "variablesHint": "Значения подставляются при запуске. Ссылайтесь на них в шагах как {{'{{'}}name{{'}}'}}.",
+      "stepsLabel": "Шаги",
+      "stepsHint": "Выполняются сверху вниз. Браузер запускается до первого шага и закрывается после последнего.",
+      "invalidJson": "Это некорректный JSON.",
+      "mustBeArray": "Шаги и переменные должны быть массивами JSON.",
+      "referenceTitle": "Справочник шагов"
+    },
+    "run": {
+      "title": "Запустить «{{name}}»",
+      "description": "Каждый выбранный профиль запускается, проходит шаги и затем закрывается.",
+      "variablesLabel": "Переменные",
+      "profilesLabel": "Профили",
+      "profilesHint": "Автоматизировать можно только профили Chromium, которые сейчас не запущены.",
+      "noEligibleProfiles": "Подходящих профилей нет. Нужен остановленный профиль Chromium.",
+      "selectAll": "Выбрать все",
+      "clearSelection": "Снять выбор",
+      "concurrencyLabel": "Одновременных профилей",
+      "concurrencyHint": "Сколько браузеров может работать одновременно.",
+      "jitterLabel": "Задержка запуска (секунды)",
+      "jitterMaxAria": "Максимальная задержка запуска в секундах",
+      "jitterHint": "Случайная пауза перед каждым запуском, чтобы профили не стартовали одновременно.",
+      "headlessLabel": "Без интерфейса",
+      "headlessHint": "Запускать без видимого окна браузера.",
+      "start": "Запустить для {{count}} профилей",
+      "started": "Автоматизация запущена для {{count}} профилей",
+      "targetLabel": "Цель",
+      "mode": {
+        "individual": "Отдельные профили",
+        "group": "Вся группа"
+      },
+      "groupHint": "Запустятся все профили группы, которые сейчас можно автоматизировать. Профили не на Chromium или уже запущенные будут пропущены.",
+      "groupPlaceholder": "Выберите группу",
+      "groupOption": "{{name}} (доступно: {{count}})",
+      "groupHasNoEligible": "В этой группе сейчас нет профилей, которые можно автоматизировать.",
+      "noGroups": "Групп профилей пока нет. Создайте группу, чтобы запускать её целиком."
+    },
+    "runs": {
+      "notStarted": "Не начато",
+      "step": "Шаг {{current}}/{{total}}: {{name}}",
+      "waiting": "осталось {{seconds}} с",
+      "summary": "Готово {{finished}}/{{total}} · по {{concurrency}} за раз",
+      "cancelRun": "Остановить",
+      "cancelRequested": "Останавливаем автоматизацию",
+      "status": {
+        "running": "Выполняется",
+        "completed": "Завершено",
+        "cancelled": "Отменено"
+      },
+      "profileStatus": {
+        "pending": "В очереди",
+        "running": "Выполняется",
+        "completed": "Готово",
+        "failed": "Ошибка",
+        "cancelled": "Отменено"
+      }
+    }
   }
 }

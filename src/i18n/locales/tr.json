@@ -1844,7 +1844,21 @@
     "updateChecksumMismatch": "İndirilen güncelleme dosyası {{file}} sağlama toplamı doğrulamasını geçemedi ve silindi. Lütfen yeniden deneyin.",
     "nameCannotBeEmpty": "Ad boş olamaz",
     "wayfernVersionNotAvailable": "Chromium {{requested}} sürümü indirilemiyor. Güncel sürüm: {{current}}.",
-    "systemChromiumNotFound": "Chromium bulunamadı. Chromium/Chrome yükleyin veya DONUT_CHROMIUM_PATH değerini ayarlayın."
+    "systemChromiumNotFound": "Chromium bulunamadı. Chromium/Chrome yükleyin veya DONUT_CHROMIUM_PATH değerini ayarlayın.",
+    "automationScenarioNotFound": "Bu otomasyon senaryosu artık mevcut değil.",
+    "automationScenarioAlreadyExists": "\"{{name}}\" adlı bir senaryo zaten var.",
+    "automationScenarioEmpty": "Bir senaryoda en az bir adım olmalı.",
+    "automationStepUrlRequired": "{{step}}. adım için bir URL gerekiyor.",
+    "automationStepRangeInvalid": "{{step}}. adımın en küçük değeri en büyük değerinden büyük.",
+    "automationStepDwellTooLong": "{{step}}. adım {{max}} saatlik sınırdan uzun bekliyor.",
+    "automationRunNotFound": "Bu otomasyon çalıştırması artık mevcut değil.",
+    "automationNoProfilesSelected": "Çalıştırmak için en az bir profil seçin.",
+    "automationConcurrencyInvalid": "Eşzamanlılık 1 ile {{max}} arasında olmalı.",
+    "automationJitterRangeInvalid": "En küçük başlatma gecikmesi en büyüğünü aşmamalı.",
+    "automationProfileNotChromium": "\"{{name}}\" profili bir Chromium profili değil, bu yüzden otomatikleştirilemez.",
+    "automationProfileAlreadyRunning": "\"{{name}}\" profili çalışıyor. Otomatikleştirmeden önce durdurun.",
+    "automationNoLinkFound": "Sayfada uygun bir bağlantı bulunamadı.",
+    "automationNoEligibleProfiles": "Hedeflenen profillerin hiçbiri şu anda otomatikleştirilemez."
   },
   "rail": {
     "profiles": "Profiller",
@@ -1861,7 +1875,8 @@
     },
     "network": "Ağ",
     "integrations": "Entegrasyonlar",
-    "account": "Hesap"
+    "account": "Hesap",
+    "automation": "Otomasyon"
   },
   "pageTitle": {
     "proxies": "Ağ",
@@ -1872,7 +1887,8 @@
     "integrations": "Entegrasyonlar",
     "account": "Hesap",
     "import": "Profil içe aktar",
-    "shortcuts": "Klavye kısayolları"
+    "shortcuts": "Klavye kısayolları",
+    "automation": "Otomasyon"
   },
   "encryption": {
     "required": {
@@ -1959,7 +1975,8 @@
     "goGroups": "Gruplar'a git",
     "goIntegrations": "Entegrasyonlar'a git",
     "goAccount": "Hesap'a git",
-    "goSettings": "Ayarlar'a git"
+    "goSettings": "Ayarlar'a git",
+    "goAutomation": "Otomasyona git"
   },
   "closeConfirm": {
     "title": "Donut Browser kapatılsın mı?",
@@ -2062,5 +2079,96 @@
   },
   "cookieCopy": {
     "noOtherTargets": "Başka Chromium profili seçilmedi"
+  },
+  "automation": {
+    "title": "Otomasyon",
+    "description": "Betikleştirilmiş gezinme akışlarını profillerinizde çalıştırın.",
+    "tabScenarios": "Senaryolar",
+    "tabRuns": "Çalıştırmalar",
+    "newScenario": "Yeni senaryo",
+    "builtIn": "Yerleşik",
+    "stepCount": "{{count}} adım",
+    "emptyScenarios": "Henüz senaryo yok. Başlamak için bir tane oluşturun.",
+    "emptyRuns": "Henüz çalıştırma yok. Bir senaryo başlatın; ilerleme burada görünür.",
+    "scenarioSaved": "Senaryo kaydedildi",
+    "scenarioDeleted": "Senaryo silindi",
+    "delete": {
+      "title": "Senaryoyu sil",
+      "description": "\"{{name}}\" silinsin mi? Bu işlem geri alınamaz."
+    },
+    "steps": {
+      "navigate": "Sayfa açılıyor",
+      "wait_for_load": "Yüklenmesi bekleniyor",
+      "scroll": "Kaydırılıyor",
+      "click_random_link": "Rastgele bir bağlantı açılıyor",
+      "dwell": "Sayfada bekleniyor",
+      "screenshot": "Ekran görüntüsü alınıyor",
+      "close_profile": "Profil kapatılıyor"
+    },
+    "editor": {
+      "createTitle": "Yeni senaryo",
+      "editTitle": "Senaryoyu düzenle",
+      "description": "Adımlar düz JSON'dur — MCP araçlarının okuyup yazdığı biçimin aynısı.",
+      "nameLabel": "Ad",
+      "namePlaceholder": "Web sitesi ısıtma",
+      "descriptionLabel": "Açıklama",
+      "descriptionPlaceholder": "Bu akışın ne yaptığı",
+      "variablesLabel": "Değişkenler",
+      "variablesHint": "Çalıştırma sırasında doldurulan değerler. Adımlarda {{'{{'}}name{{'}}'}} olarak kullanın.",
+      "stepsLabel": "Adımlar",
+      "stepsHint": "Yukarıdan aşağıya çalışır. Tarayıcı ilk adımdan önce açılır, son adımdan sonra kapanır.",
+      "invalidJson": "Bu geçerli bir JSON değil.",
+      "mustBeArray": "Adımlar ve değişkenler JSON dizisi olmalıdır.",
+      "referenceTitle": "Adım başvurusu"
+    },
+    "run": {
+      "title": "{{name}} çalıştır",
+      "description": "Seçilen her profil açılır, adımlardan geçirilir ve sonra kapatılır.",
+      "variablesLabel": "Değişkenler",
+      "profilesLabel": "Profiller",
+      "profilesHint": "Yalnızca çalışmayan Chromium profilleri otomatikleştirilebilir.",
+      "noEligibleProfiles": "Uygun profil yok. Otomasyon için çalışmayan bir Chromium profili gerekir.",
+      "selectAll": "Tümünü seç",
+      "clearSelection": "Seçimi temizle",
+      "concurrencyLabel": "Eşzamanlı profil",
+      "concurrencyHint": "Aynı anda kaç tarayıcı çalışabilir.",
+      "jitterLabel": "Başlatma gecikmesi (saniye)",
+      "jitterMaxAria": "Saniye cinsinden en yüksek başlatma gecikmesi",
+      "jitterHint": "Her başlatmadan önce rastgele bekleme; böylece profiller aynı anda başlamaz.",
+      "headlessLabel": "Başsız",
+      "headlessHint": "Görünür tarayıcı penceresi olmadan çalıştır.",
+      "start": "{{count}} profilde çalıştır",
+      "started": "{{count}} profilde otomasyon başlatıldı",
+      "targetLabel": "Hedef",
+      "mode": {
+        "individual": "Tek tek profiller",
+        "group": "Tüm grup"
+      },
+      "groupHint": "Gruptaki şu anda otomatikleştirilebilen tüm profiller çalışır. Chromium olmayanlar veya hâlihazırda çalışanlar atlanır.",
+      "groupPlaceholder": "Bir grup seçin",
+      "groupOption": "{{name}} ({{count}} uygun)",
+      "groupHasNoEligible": "Bu grupta şu anda otomatikleştirilebilecek profil yok.",
+      "noGroups": "Henüz profil grubu yok. Bir grubu tek seferde çalıştırmak için bir tane oluşturun."
+    },
+    "runs": {
+      "notStarted": "Başlamadı",
+      "step": "Adım {{current}}/{{total}}: {{name}}",
+      "waiting": "{{seconds}} sn kaldı",
+      "summary": "{{finished}}/{{total}} tamamlandı · aynı anda {{concurrency}}",
+      "cancelRun": "Durdur",
+      "cancelRequested": "Otomasyon durduruluyor",
+      "status": {
+        "running": "Çalışıyor",
+        "completed": "Tamamlandı",
+        "cancelled": "İptal edildi"
+      },
+      "profileStatus": {
+        "pending": "Sırada",
+        "running": "Çalışıyor",
+        "completed": "Bitti",
+        "failed": "Başarısız",
+        "cancelled": "İptal edildi"
+      }
+    }
   }
 }

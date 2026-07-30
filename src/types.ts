@@ -546,3 +546,97 @@ export interface VpnStatus {
   bytes_received?: number;
   last_handshake?: number;
 }
+
+// Automation types — mirror src-tauri/src/automation/{scenario,engine}.rs
+
+export type ScrollDirection = "down" | "up" | "random";
+
+export type AutomationStep =
+  | {
+      type: "navigate";
+      url: string;
+      wait_for_load: boolean;
+      timeout_secs: number;
+    }
+  | { type: "wait_for_load"; timeout_secs: number }
+  | {
+      type: "scroll";
+      direction: ScrollDirection;
+      min_steps: number;
+      max_steps: number;
+    }
+  | {
+      type: "click_random_link";
+      same_domain_only: boolean;
+      exclude_patterns: string[];
+      wait_for_load: boolean;
+      timeout_secs: number;
+    }
+  | { type: "dwell"; min_secs: number; max_secs: number }
+  | { type: "screenshot"; full_page: boolean }
+  | { type: "close_profile" };
+
+export type AutomationStepKind = AutomationStep["type"];
+
+export interface AutomationVariableDef {
+  name: string;
+  description?: string;
+  default?: string;
+}
+
+export interface AutomationScenario {
+  id: string;
+  name: string;
+  description?: string;
+  variables: AutomationVariableDef[];
+  steps: AutomationStep[];
+  built_in?: boolean;
+  updated_at?: number;
+}
+
+export type AutomationRunStatus = "running" | "completed" | "cancelled";
+
+export type AutomationProfileRunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface AutomationProfileRun {
+  profile_id: string;
+  profile_name: string;
+  status: AutomationProfileRunStatus;
+  current_step_index?: number;
+  current_step_kind?: AutomationStepKind;
+  total_steps: number;
+  error?: string;
+  started_at?: number;
+  finished_at?: number;
+  screenshots: string[];
+  waiting_until?: number;
+}
+
+export interface AutomationRun {
+  id: string;
+  scenario_id: string;
+  scenario_name: string;
+  status: AutomationRunStatus;
+  created_at: number;
+  finished_at?: number;
+  concurrency: number;
+  profiles: AutomationProfileRun[];
+}
+
+export interface AutomationRunRequest {
+  scenario_id: string;
+  /** Profiles named individually; every one must be runnable. */
+  profile_ids: string[];
+  /** Run the whole group, skipping members that can't be automated right now. */
+  group_id?: string;
+  concurrency: number;
+  jitter_min_secs: number;
+  jitter_max_secs: number;
+  variables: Record<string, string>;
+  headless: boolean;
+}

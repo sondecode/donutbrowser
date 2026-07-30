@@ -19,6 +19,7 @@ mod api_server;
 mod app_auto_updater;
 pub mod app_dirs;
 mod auto_updater;
+pub mod automation;
 mod browser;
 mod browser_runner;
 mod browser_version_manager;
@@ -2385,6 +2386,16 @@ pub fn run() {
       unlock_profile,
       lock_profile,
       is_profile_locked,
+      // Automation commands
+      automation::list_automation_scenarios,
+      automation::get_automation_scenario,
+      automation::create_automation_scenario,
+      automation::update_automation_scenario,
+      automation::delete_automation_scenario,
+      automation::get_automation_step_schema,
+      automation::start_automation_run,
+      automation::list_automation_runs,
+      automation::cancel_automation_run,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

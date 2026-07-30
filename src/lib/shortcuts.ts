@@ -34,6 +34,7 @@ export type ShortcutId =
   | "goProxies"
   | "goExtensions"
   | "goGroups"
+  | "goAutomation"
   | "goIntegrations"
   | "goAccount"
   | "goSettings";
@@ -88,6 +89,13 @@ export const SHORTCUTS: ShortcutDef[] = [
     labelKey: "shortcuts.goGroups",
     group: "navigation",
     key: "g",
+    mod: true,
+  },
+  {
+    id: "goAutomation",
+    labelKey: "shortcuts.goAutomation",
+    group: "navigation",
+    key: "b",
     mod: true,
   },
   {

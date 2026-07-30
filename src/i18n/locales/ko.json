@@ -1844,7 +1844,21 @@
     "updateChecksumMismatch": "다운로드한 업데이트 파일 {{file}}이(가) 체크섬 검증에 실패하여 삭제되었습니다. 다시 시도해 주세요.",
     "nameCannotBeEmpty": "이름은 비워둘 수 없습니다",
     "wayfernVersionNotAvailable": "Chromium 버전 {{requested}}은(는) 다운로드할 수 없습니다. 현재 버전은 {{current}}입니다.",
-    "systemChromiumNotFound": "Chromium을 찾을 수 없습니다. Chromium/Chrome을 설치하거나 DONUT_CHROMIUM_PATH를 설정하세요."
+    "systemChromiumNotFound": "Chromium을 찾을 수 없습니다. Chromium/Chrome을 설치하거나 DONUT_CHROMIUM_PATH를 설정하세요.",
+    "automationScenarioNotFound": "해당 자동화 시나리오가 더 이상 존재하지 않습니다.",
+    "automationScenarioAlreadyExists": "\"{{name}}\" 이름의 시나리오가 이미 있습니다.",
+    "automationScenarioEmpty": "시나리오에는 최소 한 단계가 필요합니다.",
+    "automationStepUrlRequired": "{{step}}단계에 URL이 필요합니다.",
+    "automationStepRangeInvalid": "{{step}}단계의 최솟값이 최댓값보다 큽니다.",
+    "automationStepDwellTooLong": "{{step}}단계의 대기 시간이 {{max}}시간 제한을 초과합니다.",
+    "automationRunNotFound": "해당 자동화 실행이 더 이상 존재하지 않습니다.",
+    "automationNoProfilesSelected": "실행할 프로필을 하나 이상 선택하세요.",
+    "automationConcurrencyInvalid": "동시 실행 수는 1에서 {{max}} 사이여야 합니다.",
+    "automationJitterRangeInvalid": "최소 실행 지연은 최대값을 넘을 수 없습니다.",
+    "automationProfileNotChromium": "프로필 \"{{name}}\"은(는) Chromium 프로필이 아니므로 자동화할 수 없습니다.",
+    "automationProfileAlreadyRunning": "프로필 \"{{name}}\"이(가) 이미 실행 중입니다. 자동화하기 전에 중지하세요.",
+    "automationNoLinkFound": "페이지에서 적절한 링크를 찾지 못했습니다.",
+    "automationNoEligibleProfiles": "대상 프로필 중 지금 자동화할 수 있는 것이 없습니다."
   },
   "rail": {
     "profiles": "프로필",
@@ -1861,7 +1875,8 @@
     },
     "network": "네트워크",
     "integrations": "통합",
-    "account": "계정"
+    "account": "계정",
+    "automation": "자동화"
   },
   "pageTitle": {
     "proxies": "네트워크",
@@ -1872,7 +1887,8 @@
     "integrations": "통합",
     "account": "계정",
     "import": "프로필 가져오기",
-    "shortcuts": "키보드 단축키"
+    "shortcuts": "키보드 단축키",
+    "automation": "자동화"
   },
   "encryption": {
     "required": {
@@ -1959,7 +1975,8 @@
     "goGroups": "그룹으로 이동",
     "goIntegrations": "통합으로 이동",
     "goAccount": "계정으로 이동",
-    "goSettings": "설정으로 이동"
+    "goSettings": "설정으로 이동",
+    "goAutomation": "자동화로 이동"
   },
   "closeConfirm": {
     "title": "Donut Browser를 닫으시겠습니까?",
@@ -2062,5 +2079,96 @@
   },
   "cookieCopy": {
     "noOtherTargets": "선택된 다른 Chromium 프로필이 없습니다"
+  },
+  "automation": {
+    "title": "자동화",
+    "description": "스크립트로 작성한 브라우징 흐름을 프로필 전체에서 실행합니다.",
+    "tabScenarios": "시나리오",
+    "tabRuns": "실행",
+    "newScenario": "새 시나리오",
+    "builtIn": "기본 제공",
+    "stepCount": "{{count}}단계",
+    "emptyScenarios": "아직 시나리오가 없습니다. 하나를 만들어 시작하세요.",
+    "emptyRuns": "아직 실행 기록이 없습니다. 시나리오를 시작하면 진행 상황이 여기에 표시됩니다.",
+    "scenarioSaved": "시나리오를 저장했습니다",
+    "scenarioDeleted": "시나리오를 삭제했습니다",
+    "delete": {
+      "title": "시나리오 삭제",
+      "description": "\"{{name}}\"을(를) 삭제할까요? 되돌릴 수 없습니다."
+    },
+    "steps": {
+      "navigate": "페이지 열기",
+      "wait_for_load": "로딩 대기",
+      "scroll": "스크롤",
+      "click_random_link": "무작위 링크 열기",
+      "dwell": "페이지에 머무르기",
+      "screenshot": "스크린샷 촬영",
+      "close_profile": "프로필 종료"
+    },
+    "editor": {
+      "createTitle": "새 시나리오",
+      "editTitle": "시나리오 편집",
+      "description": "단계는 순수 JSON입니다. MCP 도구가 읽고 쓰는 형식과 같습니다.",
+      "nameLabel": "이름",
+      "namePlaceholder": "웹사이트 워밍업",
+      "descriptionLabel": "설명",
+      "descriptionPlaceholder": "이 흐름이 하는 일",
+      "variablesLabel": "변수",
+      "variablesHint": "실행 시 채워지는 값입니다. 단계에서 {{'{{'}}name{{'}}'}} 형태로 참조하세요.",
+      "stepsLabel": "단계",
+      "stepsHint": "위에서 아래로 실행됩니다. 브라우저는 첫 단계 전에 열리고 마지막 단계 후에 닫힙니다.",
+      "invalidJson": "올바른 JSON이 아닙니다.",
+      "mustBeArray": "단계와 변수는 모두 JSON 배열이어야 합니다.",
+      "referenceTitle": "단계 참조"
+    },
+    "run": {
+      "title": "{{name}} 실행",
+      "description": "선택한 각 프로필을 실행해 단계를 진행한 뒤 종료합니다.",
+      "variablesLabel": "변수",
+      "profilesLabel": "프로필",
+      "profilesHint": "실행 중이 아닌 Chromium 프로필만 자동화할 수 있습니다.",
+      "noEligibleProfiles": "적합한 프로필이 없습니다. 자동화에는 실행 중이 아닌 Chromium 프로필이 필요합니다.",
+      "selectAll": "전체 선택",
+      "clearSelection": "선택 해제",
+      "concurrencyLabel": "동시 실행 프로필",
+      "concurrencyHint": "동시에 실행할 수 있는 브라우저 수입니다.",
+      "jitterLabel": "실행 지연(초)",
+      "jitterMaxAria": "최대 실행 지연(초)",
+      "jitterHint": "각 실행 전 무작위 대기 시간으로, 모든 프로필이 동시에 시작되지 않게 합니다.",
+      "headlessLabel": "헤드리스",
+      "headlessHint": "브라우저 창을 표시하지 않고 실행합니다.",
+      "start": "{{count}}개 프로필에서 실행",
+      "started": "{{count}}개 프로필에서 자동화를 시작했습니다",
+      "targetLabel": "대상",
+      "mode": {
+        "individual": "개별 프로필",
+        "group": "그룹 전체"
+      },
+      "groupHint": "지금 자동화할 수 있는 그룹 내 모든 프로필이 실행됩니다. Chromium이 아니거나 이미 실행 중인 항목은 건너뜁니다.",
+      "groupPlaceholder": "그룹 선택",
+      "groupOption": "{{name}} ({{count}}개 가능)",
+      "groupHasNoEligible": "이 그룹에는 지금 자동화할 수 있는 프로필이 없습니다.",
+      "noGroups": "프로필 그룹이 아직 없습니다. 하나를 만들면 그룹 전체를 한 번에 실행할 수 있습니다."
+    },
+    "runs": {
+      "notStarted": "시작 전",
+      "step": "{{current}}/{{total}}단계: {{name}}",
+      "waiting": "{{seconds}}초 남음",
+      "summary": "{{finished}}/{{total}} 완료 · 동시 {{concurrency}}개",
+      "cancelRun": "중지",
+      "cancelRequested": "자동화를 중지하고 있습니다",
+      "status": {
+        "running": "실행 중",
+        "completed": "완료",
+        "cancelled": "취소됨"
+      },
+      "profileStatus": {
+        "pending": "대기 중",
+        "running": "실행 중",
+        "completed": "완료",
+        "failed": "실패",
+        "cancelled": "취소됨"
+      }
+    }
   }
 }

@@ -1844,7 +1844,21 @@
     "updateChecksumMismatch": "El archivo de actualización descargado {{file}} no superó la verificación de suma de comprobación y fue descartado. Inténtalo de nuevo.",
     "nameCannotBeEmpty": "El nombre no puede estar vacío",
     "wayfernVersionNotAvailable": "La versión {{requested}} de Chromium no está disponible para descargar. La versión actual es {{current}}.",
-    "systemChromiumNotFound": "No se encontró Chromium. Instala Chromium/Chrome o configura DONUT_CHROMIUM_PATH."
+    "systemChromiumNotFound": "No se encontró Chromium. Instala Chromium/Chrome o configura DONUT_CHROMIUM_PATH.",
+    "automationScenarioNotFound": "Ese escenario de automatización ya no existe.",
+    "automationScenarioAlreadyExists": "Ya existe un escenario llamado \"{{name}}\".",
+    "automationScenarioEmpty": "Un escenario necesita al menos un paso.",
+    "automationStepUrlRequired": "El paso {{step}} necesita una URL.",
+    "automationStepRangeInvalid": "El paso {{step}} tiene un mínimo mayor que su máximo.",
+    "automationStepDwellTooLong": "El paso {{step}} espera más del límite de {{max}} horas.",
+    "automationRunNotFound": "Esa ejecución de automatización ya no existe.",
+    "automationNoProfilesSelected": "Selecciona al menos un perfil para ejecutar.",
+    "automationConcurrencyInvalid": "La concurrencia debe estar entre 1 y {{max}}.",
+    "automationJitterRangeInvalid": "El retardo mínimo de inicio no puede superar el máximo.",
+    "automationProfileNotChromium": "El perfil \"{{name}}\" no es un perfil Chromium, así que no se puede automatizar.",
+    "automationProfileAlreadyRunning": "El perfil \"{{name}}\" ya está en ejecución. Detenlo antes de automatizar.",
+    "automationNoLinkFound": "No se encontró ningún enlace adecuado en la página.",
+    "automationNoEligibleProfiles": "Ninguno de los perfiles indicados puede automatizarse ahora."
   },
   "rail": {
     "profiles": "Perfiles",
@@ -1861,7 +1875,8 @@
     },
     "network": "Red",
     "integrations": "Integraciones",
-    "account": "Cuenta"
+    "account": "Cuenta",
+    "automation": "Automatización"
   },
   "pageTitle": {
     "proxies": "Red",
@@ -1872,7 +1887,8 @@
     "integrations": "Integraciones",
     "account": "Cuenta",
     "import": "Importar perfil",
-    "shortcuts": "Atajos de teclado"
+    "shortcuts": "Atajos de teclado",
+    "automation": "Automatización"
   },
   "encryption": {
     "required": {
@@ -1959,7 +1975,8 @@
     "goGroups": "Ir a Grupos",
     "goIntegrations": "Ir a Integraciones",
     "goAccount": "Ir a Cuenta",
-    "goSettings": "Ir a Configuración"
+    "goSettings": "Ir a Configuración",
+    "goAutomation": "Ir a Automatización"
   },
   "closeConfirm": {
     "title": "¿Cerrar Donut Browser?",
@@ -2062,5 +2079,96 @@
   },
   "cookieCopy": {
     "noOtherTargets": "No hay otros perfiles Chromium seleccionados"
+  },
+  "automation": {
+    "title": "Automatización",
+    "description": "Ejecuta flujos de navegación programados en tus perfiles.",
+    "tabScenarios": "Escenarios",
+    "tabRuns": "Ejecuciones",
+    "newScenario": "Nuevo escenario",
+    "builtIn": "Integrado",
+    "stepCount": "{{count}} pasos",
+    "emptyScenarios": "Aún no hay escenarios. Crea uno para empezar.",
+    "emptyRuns": "Aún no hay ejecuciones. Inicia un escenario para ver el progreso aquí.",
+    "scenarioSaved": "Escenario guardado",
+    "scenarioDeleted": "Escenario eliminado",
+    "delete": {
+      "title": "Eliminar escenario",
+      "description": "¿Eliminar \"{{name}}\"? Esta acción no se puede deshacer."
+    },
+    "steps": {
+      "navigate": "Abriendo página",
+      "wait_for_load": "Esperando la carga",
+      "scroll": "Desplazando",
+      "click_random_link": "Abriendo un enlace aleatorio",
+      "dwell": "Permaneciendo en la página",
+      "screenshot": "Tomando captura",
+      "close_profile": "Cerrando perfil"
+    },
+    "editor": {
+      "createTitle": "Nuevo escenario",
+      "editTitle": "Editar escenario",
+      "description": "Los pasos son JSON puro: el mismo formato que leen y escriben las herramientas MCP.",
+      "nameLabel": "Nombre",
+      "namePlaceholder": "Calentamiento de sitio web",
+      "descriptionLabel": "Descripción",
+      "descriptionPlaceholder": "Qué hace este flujo",
+      "variablesLabel": "Variables",
+      "variablesHint": "Valores que se rellenan al ejecutar. Refiérelas en los pasos como {{'{{'}}name{{'}}'}}.",
+      "stepsLabel": "Pasos",
+      "stepsHint": "Se ejecutan de arriba abajo. El navegador se abre antes del primer paso y se cierra tras el último.",
+      "invalidJson": "Ese JSON no es válido.",
+      "mustBeArray": "Los pasos y las variables deben ser arreglos JSON.",
+      "referenceTitle": "Referencia de pasos"
+    },
+    "run": {
+      "title": "Ejecutar {{name}}",
+      "description": "Cada perfil seleccionado se abre, recorre los pasos y luego se cierra.",
+      "variablesLabel": "Variables",
+      "profilesLabel": "Perfiles",
+      "profilesHint": "Solo se pueden automatizar perfiles Chromium que no estén en ejecución.",
+      "noEligibleProfiles": "No hay perfiles aptos. La automatización necesita un perfil Chromium que no esté en ejecución.",
+      "selectAll": "Seleccionar todo",
+      "clearSelection": "Quitar selección",
+      "concurrencyLabel": "Perfiles simultáneos",
+      "concurrencyHint": "Cuántos navegadores pueden ejecutarse a la vez.",
+      "jitterLabel": "Retardo de inicio (segundos)",
+      "jitterMaxAria": "Retardo máximo de inicio en segundos",
+      "jitterHint": "Espera aleatoria antes de cada inicio, para que los perfiles no arranquen todos juntos.",
+      "headlessLabel": "Sin interfaz",
+      "headlessHint": "Ejecutar sin ventana visible del navegador.",
+      "start": "Ejecutar en {{count}} perfiles",
+      "started": "Automatización iniciada en {{count}} perfiles",
+      "targetLabel": "Destino",
+      "mode": {
+        "individual": "Perfiles individuales",
+        "group": "Grupo completo"
+      },
+      "groupHint": "Se ejecutarán todos los perfiles del grupo que puedan automatizarse ahora. Se omiten los que no son Chromium o ya están en ejecución.",
+      "groupPlaceholder": "Elige un grupo",
+      "groupOption": "{{name}} ({{count}} disponibles)",
+      "groupHasNoEligible": "Ningún perfil de este grupo puede automatizarse ahora.",
+      "noGroups": "Aún no hay grupos de perfiles. Crea uno para ejecutar un grupo completo a la vez."
+    },
+    "runs": {
+      "notStarted": "Sin iniciar",
+      "step": "Paso {{current}}/{{total}}: {{name}}",
+      "waiting": "quedan {{seconds}} s",
+      "summary": "{{finished}}/{{total}} terminados · {{concurrency}} a la vez",
+      "cancelRun": "Detener",
+      "cancelRequested": "Deteniendo la automatización",
+      "status": {
+        "running": "En ejecución",
+        "completed": "Completada",
+        "cancelled": "Cancelada"
+      },
+      "profileStatus": {
+        "pending": "En cola",
+        "running": "En ejecución",
+        "completed": "Listo",
+        "failed": "Falló",
+        "cancelled": "Cancelado"
+      }
+    }
   }
 }

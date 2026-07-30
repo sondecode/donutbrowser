@@ -1588,6 +1588,176 @@ impl McpServer {
           "required": ["profile_id", "index", "text"]
         }),
       },
+      McpTool {
+        name: "get_automation_step_schema".to_string(),
+        description: "Describe the automation scenario template format: every step kind, its fields and defaults, plus a complete example. Call this before authoring or editing a scenario so the JSON you send is valid.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {}
+        }),
+      },
+      McpTool {
+        name: "list_automation_scenarios".to_string(),
+        description: "List saved automation scenario templates with their steps and declared variables.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {}
+        }),
+      },
+      McpTool {
+        name: "get_automation_scenario".to_string(),
+        description: "Get one automation scenario template by id.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "scenario_id": {
+              "type": "string",
+              "description": "The id of the scenario"
+            }
+          },
+          "required": ["scenario_id"]
+        }),
+      },
+      McpTool {
+        name: "create_automation_scenario".to_string(),
+        description: "Save a new automation scenario template. Call get_automation_step_schema first to learn the step format. A fresh id is assigned and returned.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Unique name for the scenario"
+            },
+            "description": {
+              "type": "string",
+              "description": "What this scenario does"
+            },
+            "variables": {
+              "type": "array",
+              "description": "Variables the scenario expects; referenced in step strings as {{name}}",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" },
+                  "default": { "type": "string" }
+                },
+                "required": ["name"]
+              }
+            },
+            "steps": {
+              "type": "array",
+              "description": "Ordered step objects, each with a \"type\" field. See get_automation_step_schema.",
+              "items": { "type": "object" }
+            }
+          },
+          "required": ["name", "steps"]
+        }),
+      },
+      McpTool {
+        name: "update_automation_scenario".to_string(),
+        description: "Replace an existing automation scenario's name, description, variables and steps. Use this to modify a workflow.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "scenario_id": {
+              "type": "string",
+              "description": "The id of the scenario to replace"
+            },
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "variables": {
+              "type": "array",
+              "items": { "type": "object" }
+            },
+            "steps": {
+              "type": "array",
+              "description": "Ordered step objects. See get_automation_step_schema.",
+              "items": { "type": "object" }
+            }
+          },
+          "required": ["scenario_id", "name", "steps"]
+        }),
+      },
+      McpTool {
+        name: "delete_automation_scenario".to_string(),
+        description: "Delete an automation scenario template.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "scenario_id": { "type": "string" }
+          },
+          "required": ["scenario_id"]
+        }),
+      },
+      McpTool {
+        name: "run_automation".to_string(),
+        description: "Run a scenario against Chromium profiles, named individually and/or by group. Each profile is launched, driven through the steps, and killed afterwards. Returns immediately with a run_id — poll get_automation_run for progress. Supply profile_ids, group_id, or both.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "scenario_id": {
+              "type": "string",
+              "description": "The scenario to execute"
+            },
+            "profile_ids": {
+              "type": "array",
+              "description": "UUIDs of the profiles to run. Every one must be a Chromium/Wayfern profile that isn't already running — an ineligible entry fails the whole request. Optional if group_id is given.",
+              "items": { "type": "string" }
+            },
+            "group_id": {
+              "type": "string",
+              "description": "Run every runnable profile in this group. Members that aren't Chromium or are already running are skipped instead of failing the request. Combined with profile_ids as a union."
+            },
+            "concurrency": {
+              "type": "integer",
+              "description": "How many profiles may run at once (default: 1)"
+            },
+            "jitter_min_secs": {
+              "type": "integer",
+              "description": "Minimum random delay before each profile launches (default: 0)"
+            },
+            "jitter_max_secs": {
+              "type": "integer",
+              "description": "Maximum random delay before each profile launches (default: 0)"
+            },
+            "variables": {
+              "type": "object",
+              "description": "Values for the scenario's declared variables, overriding their defaults",
+              "additionalProperties": { "type": "string" }
+            },
+            "headless": {
+              "type": "boolean",
+              "description": "Run without a visible window (default: false)"
+            }
+          },
+          "required": ["scenario_id"]
+        }),
+      },
+      McpTool {
+        name: "get_automation_run".to_string(),
+        description: "Get the status of an automation run: per-profile step progress, dwell countdowns, screenshot paths and errors. Omit run_id to list all runs, newest first.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "description": "The run to inspect. Omit to list every run."
+            }
+          }
+        }),
+      },
+      McpTool {
+        name: "stop_automation".to_string(),
+        description: "Cancel a running automation. Profiles mid-dwell wake within a second and their browsers are killed.".to_string(),
+        input_schema: serde_json::json!({
+          "type": "object",
+          "properties": {
+            "run_id": { "type": "string" }
+          },
+          "required": ["run_id"]
+        }),
+      },
     ]
   }
 
@@ -1886,6 +2056,18 @@ impl McpServer {
         Self::require_capability("Browser automation", true).await?;
         self.handle_type_by_index(arguments).await
       }
+      "get_automation_step_schema" => Self::handle_get_automation_step_schema(),
+      "list_automation_scenarios" => Self::handle_list_automation_scenarios(),
+      "get_automation_scenario" => Self::handle_get_automation_scenario(arguments),
+      "create_automation_scenario" => Self::handle_create_automation_scenario(arguments),
+      "update_automation_scenario" => Self::handle_update_automation_scenario(arguments),
+      "delete_automation_scenario" => Self::handle_delete_automation_scenario(arguments),
+      "run_automation" => {
+        Self::require_capability("Browser automation", true).await?;
+        self.handle_run_automation(arguments).await
+      }
+      "get_automation_run" => Self::handle_get_automation_run(arguments),
+      "stop_automation" => Self::handle_stop_automation(arguments),
       _ => Err(McpError {
         code: -32602,
         message: format!("Unknown tool: {tool_name}"),
@@ -4038,79 +4220,21 @@ impl McpServer {
   // --- CDP utility methods for browser interaction ---
 
   async fn get_cdp_port_for_profile(&self, profile: &BrowserProfile) -> Result<u16, McpError> {
-    let profiles_dir = ProfileManager::instance().get_profiles_dir();
-    let profile_path = profile.get_profile_data_path(&profiles_dir);
-    let profile_path_str = profile_path.to_string_lossy();
-
-    // Retry a few times — port info may not be stored yet right after launch
-    for attempt in 0..10 {
-      if attempt > 0 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-      }
-      let port = if crate::browser::is_chromium_target(&profile.browser) {
-        crate::wayfern_manager::WayfernManager::instance()
-          .get_cdp_port(&profile_path_str)
-          .await
-      } else {
-        None
-      };
-      if let Some(p) = port {
-        return Ok(p);
-      }
-    }
-
-    Err(McpError {
-      code: -32000,
-      message: format!(
-        "No CDP connection available for profile '{}'. Make sure the browser is running.",
-        profile.name
-      ),
-    })
+    crate::automation::cdp::cdp_port_for_profile(profile)
+      .await
+      .map_err(|message| McpError {
+        code: -32000,
+        message,
+      })
   }
 
   async fn get_cdp_ws_url(&self, port: u16) -> Result<String, McpError> {
-    let url = format!("http://127.0.0.1:{port}/json");
-    let client = reqwest::Client::new();
-
-    // Retry connecting to CDP endpoint (browser may still be starting up)
-    let max_attempts = 15;
-    let mut last_err = String::new();
-    for attempt in 0..max_attempts {
-      if attempt > 0 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-      }
-      match client
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(3))
-        .send()
-        .await
-      {
-        Ok(resp) => match resp.json::<Vec<serde_json::Value>>().await {
-          Ok(targets) => {
-            if let Some(ws_url) = targets
-              .iter()
-              .find(|t| t.get("type").and_then(|v| v.as_str()) == Some("page"))
-              .and_then(|t| t.get("webSocketDebuggerUrl"))
-              .and_then(|v| v.as_str())
-            {
-              return Ok(ws_url.to_string());
-            }
-            last_err = "No page target found in browser".to_string();
-          }
-          Err(e) => {
-            last_err = format!("Failed to parse CDP targets: {e}");
-          }
-        },
-        Err(e) => {
-          last_err = format!("Failed to connect to browser CDP endpoint: {e}");
-        }
-      }
-    }
-
-    Err(McpError {
-      code: -32000,
-      message: last_err,
-    })
+    crate::automation::cdp::ws_url_for_port(port)
+      .await
+      .map_err(|message| McpError {
+        code: -32000,
+        message,
+      })
   }
 
   async fn send_cdp(
@@ -4119,62 +4243,12 @@ impl McpServer {
     method: &str,
     params: serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
-    use futures_util::sink::SinkExt;
-    use futures_util::stream::StreamExt;
-    use tokio_tungstenite::connect_async;
-    use tokio_tungstenite::tungstenite::Message;
-
-    let (mut ws_stream, _) = connect_async(ws_url).await.map_err(|e| McpError {
-      code: -32000,
-      message: format!("Failed to connect to CDP WebSocket: {e}"),
-    })?;
-
-    let command = serde_json::json!({
-      "id": 1,
-      "method": method,
-      "params": params
-    });
-
-    ws_stream
-      .send(Message::Text(command.to_string().into()))
+    crate::automation::cdp::send(ws_url, method, params)
       .await
-      .map_err(|e| McpError {
+      .map_err(|message| McpError {
         code: -32000,
-        message: format!("Failed to send CDP command: {e}"),
-      })?;
-
-    while let Some(msg) = ws_stream.next().await {
-      let msg = msg.map_err(|e| McpError {
-        code: -32000,
-        message: format!("CDP WebSocket error: {e}"),
-      })?;
-      if let Message::Text(text) = msg {
-        let response: serde_json::Value =
-          serde_json::from_str(text.as_str()).map_err(|e| McpError {
-            code: -32000,
-            message: format!("Failed to parse CDP response: {e}"),
-          })?;
-        if response.get("id") == Some(&serde_json::json!(1)) {
-          if let Some(error) = response.get("error") {
-            return Err(McpError {
-              code: -32000,
-              message: format!("CDP error: {error}"),
-            });
-          }
-          return Ok(
-            response
-              .get("result")
-              .cloned()
-              .unwrap_or(serde_json::json!({})),
-          );
-        }
-      }
-    }
-
-    Err(McpError {
-      code: -32000,
-      message: "No response received from CDP".to_string(),
-    })
+        message,
+      })
   }
 
   async fn send_human_keystrokes(
@@ -4309,128 +4383,12 @@ impl McpServer {
     params: serde_json::Value,
     timeout_secs: u64,
   ) -> Result<serde_json::Value, McpError> {
-    use futures_util::sink::SinkExt;
-    use futures_util::stream::StreamExt;
-    use tokio_tungstenite::connect_async;
-    use tokio_tungstenite::tungstenite::Message;
-
-    let (mut ws_stream, _) = connect_async(ws_url).await.map_err(|e| McpError {
-      code: -32000,
-      message: format!("Failed to connect to CDP WebSocket: {e}"),
-    })?;
-
-    // Enable Page domain events so we receive loadEventFired
-    let enable_cmd = serde_json::json!({
-      "id": 1,
-      "method": "Page.enable",
-      "params": {}
-    });
-    ws_stream
-      .send(Message::Text(enable_cmd.to_string().into()))
+    crate::automation::cdp::send_and_wait_for_load(ws_url, method, params, timeout_secs)
       .await
-      .map_err(|e| McpError {
+      .map_err(|message| McpError {
         code: -32000,
-        message: format!("Failed to send Page.enable: {e}"),
-      })?;
-
-    // Wait for Page.enable response
-    loop {
-      let msg = ws_stream
-        .next()
-        .await
-        .ok_or_else(|| McpError {
-          code: -32000,
-          message: "WebSocket closed waiting for Page.enable response".to_string(),
-        })?
-        .map_err(|e| McpError {
-          code: -32000,
-          message: format!("CDP WebSocket error: {e}"),
-        })?;
-      if let Message::Text(text) = msg {
-        let resp: serde_json::Value = serde_json::from_str(text.as_str()).unwrap_or_default();
-        if resp.get("id") == Some(&serde_json::json!(1)) {
-          break;
-        }
-      }
-    }
-
-    // Send the actual command (e.g., Page.navigate)
-    let command = serde_json::json!({
-      "id": 2,
-      "method": method,
-      "params": params
-    });
-    ws_stream
-      .send(Message::Text(command.to_string().into()))
-      .await
-      .map_err(|e| McpError {
-        code: -32000,
-        message: format!("Failed to send CDP command: {e}"),
-      })?;
-
-    // Wait for command response and then for Page.loadEventFired
-    let mut command_result = None;
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
-
-    loop {
-      let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-      if remaining.is_zero() {
-        // Timed out waiting for load — return the command result if we have it
-        break;
-      }
-
-      let msg = match tokio::time::timeout(remaining, ws_stream.next()).await {
-        Ok(Some(Ok(msg))) => msg,
-        Ok(Some(Err(e))) => {
-          return Err(McpError {
-            code: -32000,
-            message: format!("CDP WebSocket error: {e}"),
-          });
-        }
-        Ok(None) => break, // stream ended
-        Err(_) => break,   // timeout
-      };
-
-      if let Message::Text(text) = msg {
-        let response: serde_json::Value = serde_json::from_str(text.as_str()).unwrap_or_default();
-
-        // Check for command response
-        if response.get("id") == Some(&serde_json::json!(2)) {
-          if let Some(error) = response.get("error") {
-            return Err(McpError {
-              code: -32000,
-              message: format!("CDP error: {error}"),
-            });
-          }
-          command_result = Some(
-            response
-              .get("result")
-              .cloned()
-              .unwrap_or(serde_json::json!({})),
-          );
-        }
-
-        // Check for Page.loadEventFired — page is fully loaded
-        if response.get("method") == Some(&serde_json::json!("Page.loadEventFired")) {
-          break;
-        }
-      }
-    }
-
-    // Disable Page domain events
-    let disable_cmd = serde_json::json!({
-      "id": 3,
-      "method": "Page.disable",
-      "params": {}
-    });
-    let _ = ws_stream
-      .send(Message::Text(disable_cmd.to_string().into()))
-      .await;
-
-    command_result.ok_or_else(|| McpError {
-      code: -32000,
-      message: "No response received from CDP".to_string(),
-    })
+        message,
+      })
   }
 
   fn get_running_profile(&self, profile_id: &str) -> Result<BrowserProfile, McpError> {
@@ -5365,6 +5323,173 @@ impl McpServer {
       }]
     }))
   }
+
+  // --- Automation scenario handlers ---
+
+  /// Wrap a JSON payload as an MCP text result. Scenario and run payloads are
+  /// structured data, so they go out pretty-printed rather than prose.
+  fn json_result(value: &serde_json::Value) -> Result<serde_json::Value, McpError> {
+    Ok(serde_json::json!({
+      "content": [{
+        "type": "text",
+        "text": serde_json::to_string_pretty(value).unwrap_or_default()
+      }]
+    }))
+  }
+
+  fn automation_error(message: String) -> McpError {
+    McpError {
+      code: -32000,
+      message,
+    }
+  }
+
+  fn required_str(arguments: &serde_json::Value, key: &str) -> Result<String, McpError> {
+    arguments
+      .get(key)
+      .and_then(|v| v.as_str())
+      .map(|s| s.to_string())
+      .ok_or_else(|| McpError {
+        code: -32602,
+        message: format!("Missing {key}"),
+      })
+  }
+
+  /// Build a scenario from loose tool arguments. `id` is filled by the store on
+  /// create and overwritten on update, so a placeholder is fine here.
+  fn scenario_from_arguments(
+    arguments: &serde_json::Value,
+  ) -> Result<crate::automation::scenario::Scenario, McpError> {
+    let payload = serde_json::json!({
+      "id": String::new(),
+      "name": arguments.get("name").cloned().unwrap_or(serde_json::json!("")),
+      "description": arguments.get("description").cloned().unwrap_or(serde_json::Value::Null),
+      "variables": arguments.get("variables").cloned().unwrap_or(serde_json::json!([])),
+      "steps": arguments.get("steps").cloned().unwrap_or(serde_json::json!([])),
+    });
+
+    serde_json::from_value(payload).map_err(|e| McpError {
+      code: -32602,
+      message: format!(
+        "Invalid scenario: {e}. Call get_automation_step_schema for the expected format."
+      ),
+    })
+  }
+
+  fn handle_get_automation_step_schema() -> Result<serde_json::Value, McpError> {
+    Self::json_result(&crate::automation::scenario::step_schema())
+  }
+
+  fn handle_list_automation_scenarios() -> Result<serde_json::Value, McpError> {
+    let scenarios = crate::automation::storage::ScenarioStore::new()
+      .list()
+      .map_err(Self::automation_error)?;
+    Self::json_result(&serde_json::json!({ "scenarios": scenarios }))
+  }
+
+  fn handle_get_automation_scenario(
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    let scenario_id = Self::required_str(arguments, "scenario_id")?;
+    let scenario = crate::automation::storage::ScenarioStore::new()
+      .get(&scenario_id)
+      .map_err(Self::automation_error)?;
+    Self::json_result(&serde_json::to_value(scenario).unwrap_or_default())
+  }
+
+  fn handle_create_automation_scenario(
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    let scenario = Self::scenario_from_arguments(arguments)?;
+    let created = crate::automation::storage::ScenarioStore::new()
+      .create(scenario)
+      .map_err(Self::automation_error)?;
+    Self::json_result(&serde_json::to_value(created).unwrap_or_default())
+  }
+
+  fn handle_update_automation_scenario(
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    let scenario_id = Self::required_str(arguments, "scenario_id")?;
+    let scenario = Self::scenario_from_arguments(arguments)?;
+    let updated = crate::automation::storage::ScenarioStore::new()
+      .update(&scenario_id, scenario)
+      .map_err(Self::automation_error)?;
+    Self::json_result(&serde_json::to_value(updated).unwrap_or_default())
+  }
+
+  fn handle_delete_automation_scenario(
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    let scenario_id = Self::required_str(arguments, "scenario_id")?;
+    crate::automation::storage::ScenarioStore::new()
+      .delete(&scenario_id)
+      .map_err(Self::automation_error)?;
+    Ok(serde_json::json!({
+      "content": [{
+        "type": "text",
+        "text": format!("Deleted automation scenario {scenario_id}")
+      }]
+    }))
+  }
+
+  async fn handle_run_automation(
+    &self,
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    let request: crate::automation::engine::RunRequest = serde_json::from_value(arguments.clone())
+      .map_err(|e| McpError {
+        code: -32602,
+        message: format!("Invalid run request: {e}"),
+      })?;
+
+    let app_handle = {
+      let inner = self.inner.lock().await;
+      inner.app_handle.clone().ok_or_else(|| McpError {
+        code: -32000,
+        message: "MCP server not properly initialized".to_string(),
+      })?
+    };
+
+    let run = crate::automation::engine::start_run(app_handle, request)
+      .await
+      .map_err(Self::automation_error)?;
+
+    Self::json_result(&serde_json::to_value(run).unwrap_or_default())
+  }
+
+  fn handle_get_automation_run(
+    arguments: &serde_json::Value,
+  ) -> Result<serde_json::Value, McpError> {
+    match arguments.get("run_id").and_then(|v| v.as_str()) {
+      Some(run_id) => {
+        let run = crate::automation::engine::get_run(run_id).ok_or_else(|| {
+          Self::automation_error(
+            serde_json::json!({
+              "code": "AUTOMATION_RUN_NOT_FOUND",
+              "params": { "id": run_id }
+            })
+            .to_string(),
+          )
+        })?;
+        Self::json_result(&serde_json::to_value(run).unwrap_or_default())
+      }
+      None => Self::json_result(&serde_json::json!({
+        "runs": crate::automation::engine::list_runs()
+      })),
+    }
+  }
+
+  fn handle_stop_automation(arguments: &serde_json::Value) -> Result<serde_json::Value, McpError> {
+    let run_id = Self::required_str(arguments, "run_id")?;
+    crate::automation::engine::cancel_run(&run_id).map_err(Self::automation_error)?;
+    Ok(serde_json::json!({
+      "content": [{
+        "type": "text",
+        "text": format!("Cancelled automation run {run_id}")
+      }]
+    }))
+  }
 }
 
 lazy_static::lazy_static! {
@@ -5445,6 +5570,90 @@ mod tests {
     assert!(tool_names.contains(&"type_text"));
     assert!(tool_names.contains(&"get_page_content"));
     assert!(tool_names.contains(&"get_page_info"));
+    // Automation scenario tools
+    assert!(tool_names.contains(&"get_automation_step_schema"));
+    assert!(tool_names.contains(&"list_automation_scenarios"));
+    assert!(tool_names.contains(&"get_automation_scenario"));
+    assert!(tool_names.contains(&"create_automation_scenario"));
+    assert!(tool_names.contains(&"update_automation_scenario"));
+    assert!(tool_names.contains(&"delete_automation_scenario"));
+    assert!(tool_names.contains(&"run_automation"));
+    assert!(tool_names.contains(&"get_automation_run"));
+    assert!(tool_names.contains(&"stop_automation"));
+  }
+
+  /// Every automation tool must be dispatchable — a tool advertised in
+  /// `get_tools()` but missing from the `call_tool` match would surface as
+  /// "Unknown tool" only at runtime.
+  #[tokio::test]
+  async fn automation_tools_are_all_dispatched() {
+    let server = McpServer::new();
+    for name in [
+      "get_automation_step_schema",
+      "list_automation_scenarios",
+      "get_automation_scenario",
+      "create_automation_scenario",
+      "update_automation_scenario",
+      "delete_automation_scenario",
+      "run_automation",
+      "get_automation_run",
+      "stop_automation",
+    ] {
+      let result = server
+        .dispatch_tool_call(name, &serde_json::json!({}))
+        .await;
+      if let Err(err) = result {
+        assert!(
+          !err.message.starts_with("Unknown tool"),
+          "{name} is advertised but not dispatched"
+        );
+      }
+    }
+  }
+
+  #[tokio::test]
+  async fn get_automation_step_schema_returns_the_step_reference() {
+    let server = McpServer::new();
+    let result = server
+      .dispatch_tool_call("get_automation_step_schema", &serde_json::json!({}))
+      .await
+      .expect("step schema should always be available");
+    let text = result["content"][0]["text"].as_str().unwrap_or_default();
+    for kind in [
+      "navigate",
+      "scroll",
+      "click_random_link",
+      "dwell",
+      "screenshot",
+    ] {
+      assert!(text.contains(kind), "{kind} missing from schema output");
+    }
+  }
+
+  #[tokio::test]
+  async fn creating_a_scenario_without_steps_is_rejected() {
+    let server = McpServer::new();
+    let err = server
+      .dispatch_tool_call(
+        "create_automation_scenario",
+        &serde_json::json!({ "name": "Empty", "steps": [] }),
+      )
+      .await
+      .expect_err("a scenario with no steps must not be saved");
+    assert!(err.message.contains("AUTOMATION_SCENARIO_EMPTY"));
+  }
+
+  #[tokio::test]
+  async fn stopping_an_unknown_run_reports_not_found() {
+    let server = McpServer::new();
+    let err = server
+      .dispatch_tool_call(
+        "stop_automation",
+        &serde_json::json!({ "run_id": "no-such-run" }),
+      )
+      .await
+      .expect_err("an unknown run id must not silently succeed");
+    assert!(err.message.contains("AUTOMATION_RUN_NOT_FOUND"));
   }
 
   #[test]

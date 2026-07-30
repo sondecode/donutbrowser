@@ -1844,7 +1844,21 @@
     "updateChecksumMismatch": "下载的更新文件 {{file}} 未通过校验和验证，已被丢弃。请重试。",
     "nameCannotBeEmpty": "名称不能为空",
     "wayfernVersionNotAvailable": "Chromium 版本 {{requested}} 无法下载。当前版本为 {{current}}。",
-    "systemChromiumNotFound": "未找到 Chromium。请安装 Chromium/Chrome，或设置 DONUT_CHROMIUM_PATH。"
+    "systemChromiumNotFound": "未找到 Chromium。请安装 Chromium/Chrome，或设置 DONUT_CHROMIUM_PATH。",
+    "automationScenarioNotFound": "该自动化场景已不存在。",
+    "automationScenarioAlreadyExists": "已存在名为“{{name}}”的场景。",
+    "automationScenarioEmpty": "场景至少需要一个步骤。",
+    "automationStepUrlRequired": "步骤 {{step}} 需要一个 URL。",
+    "automationStepRangeInvalid": "步骤 {{step}} 的最小值大于最大值。",
+    "automationStepDwellTooLong": "步骤 {{step}} 的等待时间超过 {{max}} 小时的上限。",
+    "automationRunNotFound": "该自动化运行已不存在。",
+    "automationNoProfilesSelected": "请至少选择一个配置文件来运行。",
+    "automationConcurrencyInvalid": "并发数必须在 1 到 {{max}} 之间。",
+    "automationJitterRangeInvalid": "最小启动延迟不能超过最大值。",
+    "automationProfileNotChromium": "配置文件“{{name}}”不是 Chromium 配置文件，无法自动化。",
+    "automationProfileAlreadyRunning": "配置文件“{{name}}”已在运行。请先停止再自动化。",
+    "automationNoLinkFound": "页面上未找到合适的链接。",
+    "automationNoEligibleProfiles": "目标配置文件当前都无法自动化。"
   },
   "rail": {
     "profiles": "配置文件",
@@ -1861,7 +1875,8 @@
     },
     "network": "网络",
     "integrations": "集成",
-    "account": "账号"
+    "account": "账号",
+    "automation": "自动化"
   },
   "pageTitle": {
     "proxies": "网络",
@@ -1872,7 +1887,8 @@
     "integrations": "集成",
     "account": "账户",
     "import": "导入配置文件",
-    "shortcuts": "键盘快捷键"
+    "shortcuts": "键盘快捷键",
+    "automation": "自动化"
   },
   "encryption": {
     "required": {
@@ -1959,7 +1975,8 @@
     "goGroups": "转到分组",
     "goIntegrations": "转到集成",
     "goAccount": "转到账户",
-    "goSettings": "转到设置"
+    "goSettings": "转到设置",
+    "goAutomation": "转到自动化"
   },
   "closeConfirm": {
     "title": "关闭 Donut Browser？",
@@ -2062,5 +2079,96 @@
   },
   "cookieCopy": {
     "noOtherTargets": "未选择其他 Chromium 配置文件"
+  },
+  "automation": {
+    "title": "自动化",
+    "description": "在多个配置文件上运行脚本化的浏览流程。",
+    "tabScenarios": "场景",
+    "tabRuns": "运行",
+    "newScenario": "新建场景",
+    "builtIn": "内置",
+    "stepCount": "{{count}} 个步骤",
+    "emptyScenarios": "还没有场景。创建一个开始使用。",
+    "emptyRuns": "还没有运行记录。启动一个场景后可在此查看进度。",
+    "scenarioSaved": "场景已保存",
+    "scenarioDeleted": "场景已删除",
+    "delete": {
+      "title": "删除场景",
+      "description": "删除“{{name}}”吗？此操作无法撤销。"
+    },
+    "steps": {
+      "navigate": "正在打开页面",
+      "wait_for_load": "正在等待加载",
+      "scroll": "正在滚动",
+      "click_random_link": "正在打开随机链接",
+      "dwell": "正在停留在页面",
+      "screenshot": "正在截图",
+      "close_profile": "正在关闭配置文件"
+    },
+    "editor": {
+      "createTitle": "新建场景",
+      "editTitle": "编辑场景",
+      "description": "步骤就是纯 JSON —— 与 MCP 工具读写的格式相同。",
+      "nameLabel": "名称",
+      "namePlaceholder": "网站预热",
+      "descriptionLabel": "说明",
+      "descriptionPlaceholder": "该流程的作用",
+      "variablesLabel": "变量",
+      "variablesHint": "运行时填入的值。在步骤中用 {{'{{'}}name{{'}}'}} 引用。",
+      "stepsLabel": "步骤",
+      "stepsHint": "自上而下执行。浏览器在第一步前启动，最后一步后关闭。",
+      "invalidJson": "这不是有效的 JSON。",
+      "mustBeArray": "步骤和变量都必须是 JSON 数组。",
+      "referenceTitle": "步骤参考"
+    },
+    "run": {
+      "title": "运行 {{name}}",
+      "description": "每个选中的配置文件会被启动、执行各步骤，然后关闭。",
+      "variablesLabel": "变量",
+      "profilesLabel": "配置文件",
+      "profilesHint": "只有尚未运行的 Chromium 配置文件才能自动化。",
+      "noEligibleProfiles": "没有符合条件的配置文件。自动化需要一个未运行的 Chromium 配置文件。",
+      "selectAll": "全选",
+      "clearSelection": "清除选择",
+      "concurrencyLabel": "并发配置文件数",
+      "concurrencyHint": "同时可运行的浏览器数量。",
+      "jitterLabel": "启动延迟（秒）",
+      "jitterMaxAria": "最大启动延迟（秒）",
+      "jitterHint": "每次启动前的随机等待，避免所有配置文件同时启动。",
+      "headlessLabel": "无界面",
+      "headlessHint": "不显示浏览器窗口地运行。",
+      "start": "在 {{count}} 个配置文件上运行",
+      "started": "已在 {{count}} 个配置文件上开始自动化",
+      "targetLabel": "目标",
+      "mode": {
+        "individual": "单个配置文件",
+        "group": "整个分组"
+      },
+      "groupHint": "分组中当前可自动化的所有配置文件都会运行。非 Chromium 或已在运行的会被跳过。",
+      "groupPlaceholder": "选择一个分组",
+      "groupOption": "{{name}}（{{count}} 个可用）",
+      "groupHasNoEligible": "该分组当前没有可自动化的配置文件。",
+      "noGroups": "还没有配置文件分组。创建一个即可一次运行整个分组。"
+    },
+    "runs": {
+      "notStarted": "未开始",
+      "step": "步骤 {{current}}/{{total}}：{{name}}",
+      "waiting": "还剩 {{seconds}} 秒",
+      "summary": "{{finished}}/{{total}} 已完成 · 每次 {{concurrency}} 个",
+      "cancelRun": "停止",
+      "cancelRequested": "正在停止自动化",
+      "status": {
+        "running": "运行中",
+        "completed": "已完成",
+        "cancelled": "已取消"
+      },
+      "profileStatus": {
+        "pending": "排队中",
+        "running": "运行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消"
+      }
+    }
   }
 }

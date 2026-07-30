@@ -5,6 +5,7 @@ import { FaDownload } from "react-icons/fa";
 import { FiWifi } from "react-icons/fi";
 import { GoGear } from "react-icons/go";
 import {
+  LuBot,
   LuCircleStop,
   LuCloud,
   LuInfo,
@@ -63,6 +64,7 @@ const ICONS: Record<ShortcutId, React.ComponentType<{ className?: string }>> = {
   goProxies: FiWifi,
   goExtensions: LuPuzzle,
   goGroups: LuUsers,
+  goAutomation: LuBot,
   goIntegrations: LuPlug,
   goAccount: LuCloud,
   goSettings: GoGear,

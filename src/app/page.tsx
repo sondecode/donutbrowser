@@ -7,6 +7,7 @@ import { useOnborda } from "onborda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AccountPage } from "@/components/account-page";
+import { AutomationDialog } from "@/components/automation-dialog";
 import { CloneProfileDialog } from "@/components/clone-profile-dialog";
 import { CloseConfirmDialog } from "@/components/close-confirm-dialog";
 import { CommandPalette } from "@/components/command-palette";
@@ -252,6 +253,7 @@ export default function Home() {
     useState(false);
   const [extensionManagementDialogOpen, setExtensionManagementDialogOpen] =
     useState(false);
+  const [automationDialogOpen, setAutomationDialogOpen] = useState(false);
   const [groupAssignmentDialogOpen, setGroupAssignmentDialogOpen] =
     useState(false);
   const [
@@ -326,6 +328,7 @@ export default function Home() {
     setIntegrationsDialogOpen(false);
     setImportProfileDialogOpen(false);
     setAccountDialogOpen(false);
+    setAutomationDialogOpen(false);
 
     setCurrentPage(page);
     switch (page) {
@@ -343,6 +346,9 @@ export default function Home() {
         break;
       case "groups":
         setGroupManagementDialogOpen(true);
+        break;
+      case "automation":
+        setAutomationDialogOpen(true);
         break;
       case "integrations":
         setIntegrationsDialogOpen(true);
@@ -408,6 +414,9 @@ export default function Home() {
         }
         case "goGroups":
           handleRailNavigate("groups");
+          break;
+        case "goAutomation":
+          handleRailNavigate("automation");
           break;
         case "goIntegrations": {
           // Mod+I: flip api↔mcp tab when already on integrations.
@@ -1536,6 +1545,20 @@ export default function Home() {
               limitedMode={false}
               subPage={currentPage === "extensions"}
               initialTab={extensionManagementInitialTab}
+            />
+          )}
+
+          {automationDialogOpen && (
+            <AutomationDialog
+              isOpen={automationDialogOpen}
+              onClose={() => {
+                setAutomationDialogOpen(false);
+                setCurrentPage("profiles");
+              }}
+              subPage={currentPage === "automation"}
+              profiles={profiles}
+              groups={groupsData}
+              runningProfiles={runningProfiles}
             />
           )}
 

@@ -1844,7 +1844,21 @@
     "updateChecksumMismatch": "Tệp cập nhật đã tải xuống {{file}} không vượt qua kiểm tra checksum và đã bị loại bỏ. Vui lòng thử lại.",
     "nameCannotBeEmpty": "Tên không được để trống",
     "wayfernVersionNotAvailable": "Phiên bản Chromium {{requested}} không có sẵn để tải xuống. Phiên bản hiện tại là {{current}}.",
-    "systemChromiumNotFound": "Không tìm thấy Chromium. Hãy cài Chromium/Chrome hoặc đặt DONUT_CHROMIUM_PATH."
+    "systemChromiumNotFound": "Không tìm thấy Chromium. Hãy cài Chromium/Chrome hoặc đặt DONUT_CHROMIUM_PATH.",
+    "automationScenarioNotFound": "Kịch bản tự động hoá này không còn tồn tại.",
+    "automationScenarioAlreadyExists": "Đã có kịch bản tên \"{{name}}\".",
+    "automationScenarioEmpty": "Kịch bản cần có ít nhất một bước.",
+    "automationStepUrlRequired": "Bước {{step}} cần một URL.",
+    "automationStepRangeInvalid": "Bước {{step}} có giá trị nhỏ nhất lớn hơn giá trị lớn nhất.",
+    "automationStepDwellTooLong": "Bước {{step}} đợi lâu hơn giới hạn {{max}} giờ.",
+    "automationRunNotFound": "Lần chạy tự động hoá này không còn tồn tại.",
+    "automationNoProfilesSelected": "Hãy chọn ít nhất một profile để chạy.",
+    "automationConcurrencyInvalid": "Số chạy song song phải từ 1 đến {{max}}.",
+    "automationJitterRangeInvalid": "Độ trễ khởi động nhỏ nhất không được lớn hơn giá trị lớn nhất.",
+    "automationProfileNotChromium": "Profile \"{{name}}\" không phải profile Chromium nên không thể tự động hoá.",
+    "automationProfileAlreadyRunning": "Profile \"{{name}}\" đang chạy. Hãy tắt nó trước khi tự động hoá.",
+    "automationNoLinkFound": "Không tìm thấy link phù hợp trên trang.",
+    "automationNoEligibleProfiles": "Không có profile nào trong số đã chọn có thể tự động hoá ngay lúc này."
   },
   "rail": {
     "profiles": "Profile",
@@ -1861,7 +1875,8 @@
     },
     "network": "Mạng",
     "integrations": "Tích hợp",
-    "account": "Tài khoản"
+    "account": "Tài khoản",
+    "automation": "Tự động hoá"
   },
   "pageTitle": {
     "proxies": "Mạng",
@@ -1872,7 +1887,8 @@
     "integrations": "Tích hợp",
     "account": "Tài khoản",
     "import": "Nhập profile",
-    "shortcuts": "Phím tắt"
+    "shortcuts": "Phím tắt",
+    "automation": "Tự động hoá"
   },
   "encryption": {
     "required": {
@@ -1959,7 +1975,8 @@
     "goGroups": "Đi đến Nhóm",
     "goIntegrations": "Đi đến Tích hợp",
     "goAccount": "Đi đến Tài khoản",
-    "goSettings": "Đi đến Cài đặt"
+    "goSettings": "Đi đến Cài đặt",
+    "goAutomation": "Đến Tự động hoá"
   },
   "closeConfirm": {
     "title": "Đóng Donut Browser?",
@@ -2062,5 +2079,96 @@
   },
   "cookieCopy": {
     "noOtherTargets": "Chưa chọn profile Chromium nào khác"
+  },
+  "automation": {
+    "title": "Tự động hoá",
+    "description": "Chạy quy trình duyệt web theo kịch bản trên nhiều profile.",
+    "tabScenarios": "Kịch bản",
+    "tabRuns": "Lần chạy",
+    "newScenario": "Kịch bản mới",
+    "builtIn": "Có sẵn",
+    "stepCount": "{{count}} bước",
+    "emptyScenarios": "Chưa có kịch bản nào. Tạo một cái để bắt đầu.",
+    "emptyRuns": "Chưa có lần chạy nào. Khởi động một kịch bản để xem tiến độ ở đây.",
+    "scenarioSaved": "Đã lưu kịch bản",
+    "scenarioDeleted": "Đã xoá kịch bản",
+    "delete": {
+      "title": "Xoá kịch bản",
+      "description": "Xoá \"{{name}}\"? Hành động này không thể hoàn tác."
+    },
+    "steps": {
+      "navigate": "Đang mở trang",
+      "wait_for_load": "Đang đợi tải xong",
+      "scroll": "Đang cuộn trang",
+      "click_random_link": "Đang mở một link ngẫu nhiên",
+      "dwell": "Đang ngâm trên trang",
+      "screenshot": "Đang chụp màn hình",
+      "close_profile": "Đang tắt profile"
+    },
+    "editor": {
+      "createTitle": "Kịch bản mới",
+      "editTitle": "Sửa kịch bản",
+      "description": "Các bước là JSON thuần — đúng định dạng mà công cụ MCP đọc và ghi.",
+      "nameLabel": "Tên",
+      "namePlaceholder": "Warmup website",
+      "descriptionLabel": "Mô tả",
+      "descriptionPlaceholder": "Quy trình này làm gì",
+      "variablesLabel": "Biến",
+      "variablesHint": "Giá trị được điền khi chạy. Tham chiếu trong các bước bằng {{'{{'}}name{{'}}'}}.",
+      "stepsLabel": "Các bước",
+      "stepsHint": "Chạy từ trên xuống. Trình duyệt mở trước bước đầu và tắt sau bước cuối.",
+      "invalidJson": "JSON không hợp lệ.",
+      "mustBeArray": "Các bước và biến đều phải là mảng JSON.",
+      "referenceTitle": "Tham chiếu các bước"
+    },
+    "run": {
+      "title": "Chạy {{name}}",
+      "description": "Mỗi profile được chọn sẽ được khởi động, chạy qua các bước, rồi tắt.",
+      "variablesLabel": "Biến",
+      "profilesLabel": "Profile",
+      "profilesHint": "Chỉ profile Chromium chưa chạy mới có thể tự động hoá.",
+      "noEligibleProfiles": "Không có profile phù hợp. Tự động hoá cần một profile Chromium đang tắt.",
+      "selectAll": "Chọn tất cả",
+      "clearSelection": "Bỏ chọn",
+      "concurrencyLabel": "Số profile song song",
+      "concurrencyHint": "Số trình duyệt được chạy cùng lúc.",
+      "jitterLabel": "Độ trễ khởi động (giây)",
+      "jitterMaxAria": "Độ trễ khởi động tối đa tính bằng giây",
+      "jitterHint": "Đợi ngẫu nhiên trước mỗi lần khởi động, để các profile không bật cùng lúc.",
+      "headlessLabel": "Headless",
+      "headlessHint": "Chạy mà không hiện cửa sổ trình duyệt.",
+      "start": "Chạy trên {{count}} profile",
+      "started": "Đã bắt đầu tự động hoá trên {{count}} profile",
+      "targetLabel": "Đối tượng",
+      "mode": {
+        "individual": "Từng profile",
+        "group": "Cả nhóm"
+      },
+      "groupHint": "Mọi profile trong nhóm có thể tự động hoá ngay lúc này sẽ được chạy. Profile không phải Chromium hoặc đang chạy sẽ bị bỏ qua.",
+      "groupPlaceholder": "Chọn một nhóm",
+      "groupOption": "{{name}} ({{count}} khả dụng)",
+      "groupHasNoEligible": "Nhóm này hiện không có profile nào tự động hoá được.",
+      "noGroups": "Chưa có nhóm profile nào. Tạo một nhóm để chạy cả nhóm cùng lúc."
+    },
+    "runs": {
+      "notStarted": "Chưa bắt đầu",
+      "step": "Bước {{current}}/{{total}}: {{name}}",
+      "waiting": "còn {{seconds}} giây",
+      "summary": "{{finished}}/{{total}} xong · {{concurrency}} cùng lúc",
+      "cancelRun": "Dừng",
+      "cancelRequested": "Đang dừng tự động hoá",
+      "status": {
+        "running": "Đang chạy",
+        "completed": "Hoàn tất",
+        "cancelled": "Đã huỷ"
+      },
+      "profileStatus": {
+        "pending": "Đang chờ",
+        "running": "Đang chạy",
+        "completed": "Xong",
+        "failed": "Lỗi",
+        "cancelled": "Đã huỷ"
+      }
+    }
   }
 }

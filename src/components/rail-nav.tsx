@@ -6,6 +6,7 @@ import { FaDownload } from "react-icons/fa";
 import { FiWifi } from "react-icons/fi";
 import { GoGear, GoKebabHorizontal } from "react-icons/go";
 import {
+  LuBot,
   LuCloud,
   LuKeyboard,
   LuPlug,
@@ -23,6 +24,7 @@ export type AppPage =
   | "extensions"
   | "groups"
   | "vpns"
+  | "automation"
   | "settings"
   | "integrations"
   | "account"
@@ -249,6 +251,7 @@ const TOP_ITEMS: RailItem[] = [
   { page: "proxies", Icon: FiWifi, labelKey: "rail.network" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "rail.extensions" },
   { page: "groups", Icon: LuUsers, labelKey: "rail.groups" },
+  { page: "automation", Icon: LuBot, labelKey: "rail.automation" },
   { page: "integrations", Icon: LuPlug, labelKey: "rail.integrations" },
   { page: "account", Icon: LuCloud, labelKey: "rail.account" },
 ];

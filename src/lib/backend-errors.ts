@@ -39,6 +39,20 @@ export type BackendErrorCode =
   | "SYSTEM_CHROMIUM_NOT_FOUND"
   | "UPDATE_CHECKSUMS_UNAVAILABLE"
   | "UPDATE_CHECKSUM_MISMATCH"
+  | "AUTOMATION_SCENARIO_NOT_FOUND"
+  | "AUTOMATION_SCENARIO_ALREADY_EXISTS"
+  | "AUTOMATION_SCENARIO_EMPTY"
+  | "AUTOMATION_STEP_URL_REQUIRED"
+  | "AUTOMATION_STEP_RANGE_INVALID"
+  | "AUTOMATION_STEP_DWELL_TOO_LONG"
+  | "AUTOMATION_RUN_NOT_FOUND"
+  | "AUTOMATION_NO_PROFILES_SELECTED"
+  | "AUTOMATION_NO_ELIGIBLE_PROFILES"
+  | "AUTOMATION_CONCURRENCY_INVALID"
+  | "AUTOMATION_JITTER_RANGE_INVALID"
+  | "AUTOMATION_PROFILE_NOT_CHROMIUM"
+  | "AUTOMATION_PROFILE_ALREADY_RUNNING"
+  | "AUTOMATION_NO_LINK_FOUND"
   | "INTERNAL_ERROR";
 
 export interface BackendError {
@@ -162,6 +176,49 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.updateChecksumMismatch", {
         file: parsed.params?.file ?? "",
       });
+    case "AUTOMATION_SCENARIO_NOT_FOUND":
+      return t("backendErrors.automationScenarioNotFound");
+    case "AUTOMATION_SCENARIO_ALREADY_EXISTS":
+      return t("backendErrors.automationScenarioAlreadyExists", {
+        name: parsed.params?.name ?? "",
+      });
+    case "AUTOMATION_SCENARIO_EMPTY":
+      return t("backendErrors.automationScenarioEmpty");
+    case "AUTOMATION_STEP_URL_REQUIRED":
+      return t("backendErrors.automationStepUrlRequired", {
+        step: parsed.params?.step ?? "",
+      });
+    case "AUTOMATION_STEP_RANGE_INVALID":
+      return t("backendErrors.automationStepRangeInvalid", {
+        step: parsed.params?.step ?? "",
+      });
+    case "AUTOMATION_STEP_DWELL_TOO_LONG":
+      return t("backendErrors.automationStepDwellTooLong", {
+        step: parsed.params?.step ?? "",
+        max: parsed.params?.max ?? "",
+      });
+    case "AUTOMATION_RUN_NOT_FOUND":
+      return t("backendErrors.automationRunNotFound");
+    case "AUTOMATION_NO_PROFILES_SELECTED":
+      return t("backendErrors.automationNoProfilesSelected");
+    case "AUTOMATION_NO_ELIGIBLE_PROFILES":
+      return t("backendErrors.automationNoEligibleProfiles");
+    case "AUTOMATION_CONCURRENCY_INVALID":
+      return t("backendErrors.automationConcurrencyInvalid", {
+        max: parsed.params?.max ?? "",
+      });
+    case "AUTOMATION_JITTER_RANGE_INVALID":
+      return t("backendErrors.automationJitterRangeInvalid");
+    case "AUTOMATION_PROFILE_NOT_CHROMIUM":
+      return t("backendErrors.automationProfileNotChromium", {
+        name: parsed.params?.name ?? "",
+      });
+    case "AUTOMATION_PROFILE_ALREADY_RUNNING":
+      return t("backendErrors.automationProfileAlreadyRunning", {
+        name: parsed.params?.name ?? "",
+      });
+    case "AUTOMATION_NO_LINK_FOUND":
+      return t("backendErrors.automationNoLinkFound");
     case "INTERNAL_ERROR":
       return t("backendErrors.internal", {
         detail: parsed.params?.detail ?? "",
