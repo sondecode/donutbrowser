@@ -13,12 +13,13 @@ pub use encryption::{
 pub use engine::{
   cancel_profile_sync, enable_extension_group_sync_if_needed, enable_group_sync_if_needed,
   enable_proxy_sync_if_needed, enable_sync_for_all_entities, enable_vpn_sync_if_needed,
-  get_unsynced_entity_counts, is_group_in_use_by_synced_profile, is_group_used_by_synced_profile,
-  is_proxy_in_use_by_synced_profile, is_proxy_used_by_synced_profile, is_sync_configured,
-  is_vpn_in_use_by_synced_profile, is_vpn_used_by_synced_profile, request_profile_sync,
-  rollover_encryption_for_all_entities, set_extension_group_sync_enabled,
-  set_extension_sync_enabled, set_group_sync_enabled, set_profile_sync_mode,
-  set_proxy_sync_enabled, set_vpn_sync_enabled, sync_profile, trigger_sync_for_profile, SyncEngine,
+  ensure_sync_configured, get_unsynced_entity_counts, is_group_in_use_by_synced_profile,
+  is_group_used_by_synced_profile, is_proxy_in_use_by_synced_profile,
+  is_proxy_used_by_synced_profile, is_sync_configured, is_vpn_in_use_by_synced_profile,
+  is_vpn_used_by_synced_profile, request_profile_sync, rollover_encryption_for_all_entities,
+  set_extension_group_sync_enabled, set_extension_sync_enabled, set_group_sync_enabled,
+  set_profile_sync_mode, set_proxy_sync_enabled, set_vpn_sync_enabled, sync_profile,
+  trigger_sync_for_profile, SyncEngine,
 };
 pub use manifest::{compute_diff, generate_manifest, HashCache, ManifestDiff, SyncManifest};
 pub use scheduler::{get_global_scheduler, set_global_scheduler, SyncScheduler};
@@ -39,6 +40,17 @@ pub fn queue_profile_sync_if_eligible(profile: &crate::profile::BrowserProfile) 
   tauri::async_runtime::spawn(async move {
     if let Some(scheduler) = get_global_scheduler() {
       scheduler.queue_profile_sync(profile_id).await;
+    }
+  });
+}
+
+pub fn queue_automation_scenarios_sync_if_available() {
+  if !is_sync_configured() {
+    return;
+  }
+  tauri::async_runtime::spawn(async move {
+    if let Some(scheduler) = get_global_scheduler() {
+      scheduler.queue_automation_scenarios_sync().await;
     }
   });
 }

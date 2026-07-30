@@ -6,6 +6,7 @@
 //! changes needed. `step_schema()` returns a machine-readable description of
 //! every step kind for exactly that purpose.
 
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -37,6 +38,11 @@ pub enum Step {
     wait_for_load: bool,
     #[serde(default = "default_load_timeout")]
     timeout_secs: u64,
+    /// Sent as the request's `Referer`. A deep page arrived at with no referrer
+    /// at all is its own signal, so set this whenever a scenario jumps straight
+    /// to a URL instead of clicking its way there. Supports placeholders.
+    #[serde(default)]
+    referrer: Option<String>,
   },
   /// Block until `document.readyState === "complete"`, or the timeout elapses.
   WaitForLoad {
@@ -61,6 +67,12 @@ pub enum Step {
     /// Substrings that disqualify a candidate href (login, logout, cart, …).
     #[serde(default)]
     exclude_patterns: Vec<String>,
+    /// Substrings a candidate href must contain — any one match qualifies it.
+    /// Empty means every href qualifies. Set it to keep a click on the kind of
+    /// page the scenario is actually about (`/shop/product/`, `/dp/`, …), so
+    /// browsing your way to a target beats deep-linking to it.
+    #[serde(default)]
+    include_patterns: Vec<String>,
     #[serde(default = "default_true")]
     wait_for_load: bool,
     #[serde(default = "default_load_timeout")]
@@ -115,6 +127,40 @@ pub struct VariableDef {
   pub description: Option<String>,
   #[serde(default)]
   pub default: Option<String>,
+  /// Pool of values dealt out across the batch, one per profile, instead of
+  /// every profile receiving the same string. This is what keeps a batch from
+  /// sending N profiles to one identical URL — the tell that makes a batch
+  /// legible as a batch.
+  #[serde(default)]
+  pub choices: Vec<String>,
+  /// Refuse to start when the pool can't cover the batch, rather than wrapping
+  /// around and handing the same value to more than one profile.
+  #[serde(default)]
+  pub unique: bool,
+}
+
+/// One shuffled pool per pool-backed variable, held for the length of a run.
+pub type VariableDecks = HashMap<String, Vec<String>>;
+
+/// Whether the caller pinned this variable for the whole run.
+///
+/// Blank counts as absent: the run dialog sends one entry per declared variable,
+/// so an empty field has to mean "not set" rather than "set to nothing" — else
+/// every pool-backed variable would be overridden into emptiness before it was
+/// ever dealt.
+fn has_override(overrides: &HashMap<String, String>, name: &str) -> bool {
+  overrides
+    .get(name)
+    .is_some_and(|value| !value.trim().is_empty())
+}
+
+/// In-place Fisher–Yates. Hand-rolled so the deck depends only on
+/// `random_range`, the same primitive every other randomised knob here uses.
+fn shuffle<T>(items: &mut [T]) {
+  let mut rng = rand::rng();
+  for i in (1..items.len()).rev() {
+    items.swap(i, rng.random_range(0..=i));
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -135,6 +181,10 @@ pub struct Scenario {
   /// conflict resolution (last-write-wins); bumped on edits only.
   #[serde(default)]
   pub updated_at: Option<u64>,
+  /// Whether this scenario participates in cloud/self-hosted sync. Defaults to
+  /// true so existing scenarios keep syncing after the field is introduced.
+  #[serde(default = "default_true")]
+  pub sync_enabled: bool,
 }
 
 impl Scenario {
@@ -152,12 +202,15 @@ impl Scenario {
         name: "start_url".to_string(),
         description: Some("The first page to open".to_string()),
         default: Some("https://www.wikipedia.org".to_string()),
+        choices: Vec::new(),
+        unique: false,
       }],
       steps: vec![
         Step::Navigate {
           url: "{{start_url}}".to_string(),
           wait_for_load: true,
           timeout_secs: 30,
+          referrer: None,
         },
         Step::Scroll {
           direction: ScrollDirection::Down,
@@ -167,6 +220,7 @@ impl Scenario {
         Step::ClickRandomLink {
           same_domain_only: true,
           exclude_patterns: default_exclude_patterns(),
+          include_patterns: Vec::new(),
           wait_for_load: true,
           timeout_secs: 30,
         },
@@ -182,6 +236,7 @@ impl Scenario {
         Step::ClickRandomLink {
           same_domain_only: true,
           exclude_patterns: default_exclude_patterns(),
+          include_patterns: Vec::new(),
           wait_for_load: true,
           timeout_secs: 30,
         },
@@ -194,6 +249,7 @@ impl Scenario {
       ],
       built_in: true,
       updated_at: None,
+      sync_enabled: true,
     }
   }
 
@@ -263,18 +319,84 @@ impl Scenario {
     Ok(())
   }
 
-  /// Variable values to use for a run: declared defaults overridden by the
-  /// caller's map.
-  pub fn resolve_variables(&self, overrides: &HashMap<String, String>) -> HashMap<String, String> {
-    let mut resolved: HashMap<String, String> = self
+  /// Shuffle every pool-backed variable once for the whole run, so handing card
+  /// `index` to profile `index` gives each profile a different value for as long
+  /// as the pool lasts. Variables the caller pinned get no deck — an explicit
+  /// value is a deliberate request for all profiles to share it.
+  pub fn shuffle_decks(&self, overrides: &HashMap<String, String>) -> VariableDecks {
+    self
       .variables
       .iter()
-      .filter_map(|v| v.default.clone().map(|d| (v.name.clone(), d)))
-      .collect();
-    for (key, value) in overrides {
-      resolved.insert(key.clone(), value.clone());
+      .filter(|v| !v.choices.is_empty() && !has_override(overrides, &v.name))
+      .map(|v| {
+        let mut deck = v.choices.clone();
+        shuffle(&mut deck);
+        (v.name.clone(), deck)
+      })
+      .collect()
+  }
+
+  /// Variable values for the profile at `index` in a batch.
+  ///
+  /// Precedence: a pinned override wins, else the profile's card from the
+  /// shuffled deck, else the declared default. Undeclared overrides still
+  /// substitute, so an MCP client can parameterise a step without editing the
+  /// template first.
+  pub fn resolve_variables_for(
+    &self,
+    overrides: &HashMap<String, String>,
+    index: usize,
+    decks: &VariableDecks,
+  ) -> HashMap<String, String> {
+    let mut resolved: HashMap<String, String> = HashMap::new();
+
+    for variable in &self.variables {
+      let value = if has_override(overrides, &variable.name) {
+        overrides.get(&variable.name).cloned()
+      } else {
+        decks
+          .get(&variable.name)
+          .filter(|deck| !deck.is_empty())
+          .map(|deck| deck[index % deck.len()].clone())
+          .or_else(|| variable.default.clone())
+      };
+      if let Some(value) = value {
+        resolved.insert(variable.name.clone(), value);
+      }
     }
+
+    for (name, value) in overrides {
+      if !value.trim().is_empty() {
+        resolved
+          .entry(name.clone())
+          .or_insert_with(|| value.clone());
+      }
+    }
+
     resolved
+  }
+
+  /// The first `unique` pool that can't cover `profile_count` profiles, as
+  /// `(name, pool size)`.
+  ///
+  /// Lives here rather than in `validate()` because it depends on the size of
+  /// the batch, not on the template — a scenario with a three-value pool is
+  /// perfectly valid until someone points it at four profiles.
+  pub fn undersized_unique_pool(
+    &self,
+    overrides: &HashMap<String, String>,
+    profile_count: usize,
+  ) -> Option<(&str, usize)> {
+    self.variables.iter().find_map(|variable| {
+      if !variable.unique
+        || variable.choices.is_empty()
+        || has_override(overrides, &variable.name)
+        || variable.choices.len() >= profile_count
+      {
+        return None;
+      }
+      Some((variable.name.as_str(), variable.choices.len()))
+    })
   }
 }
 
@@ -320,7 +442,7 @@ pub fn step_schema() -> serde_json::Value {
     "scenario": {
       "name": "string (required)",
       "description": "string (optional)",
-      "variables": "array of { name, description?, default? } — referenced in step strings as {{name}}",
+      "variables": "array of { name, description?, default?, choices?, unique? } — referenced in step strings as {{name}}",
       "steps": "array of step objects, executed in order",
     },
     "notes": [
@@ -328,6 +450,8 @@ pub fn step_schema() -> serde_json::Value {
       "The browser is launched before the first step and killed after the last one, so no explicit launch step exists.",
       "Automation only works on Chromium/Wayfern profiles — Firefox-based profiles have no CDP endpoint.",
       format!("dwell max_secs is capped at {MAX_DWELL_SECS} seconds."),
+      "A variable with a \"choices\" pool is dealt out one value per profile from a per-run shuffle, so a batch does not send every profile to the same URL. Set \"unique\": true to refuse a run whose batch is larger than the pool. Passing a value for the variable at run time pins it for every profile instead.",
+      "Prefer reaching a target page with click_random_link + include_patterns over navigating straight to it: the click carries a referrer and a real user gesture, and each profile ends up on a different page.",
     ],
     "steps": [
       {
@@ -336,6 +460,7 @@ pub fn step_schema() -> serde_json::Value {
           "url": "string (required) — supports {{variable}} placeholders",
           "wait_for_load": "bool (default true)",
           "timeout_secs": "number (default 30)",
+          "referrer": "string (optional) — sent as the Referer header; supports placeholders",
         },
       },
       {
@@ -355,6 +480,7 @@ pub fn step_schema() -> serde_json::Value {
         "fields": {
           "same_domain_only": "bool (default true)",
           "exclude_patterns": "array of substrings that disqualify an href",
+          "include_patterns": "array of substrings an href must contain (any one match); empty means no restriction",
           "wait_for_load": "bool (default true)",
           "timeout_secs": "number (default 30)",
         },
@@ -469,26 +595,150 @@ mod tests {
       url: "  ".to_string(),
       wait_for_load: true,
       timeout_secs: 30,
+      referrer: None,
     }];
     let err = scenario.validate().unwrap_err();
     assert!(err.contains("AUTOMATION_STEP_URL_REQUIRED"));
   }
 
+  /// A scenario carrying one pool-backed variable, the shape that replaces
+  /// "duplicate the template once per URL".
+  fn pooled(values: &[&str], unique: bool) -> Scenario {
+    let mut scenario = Scenario::builtin_warmup();
+    scenario.variables = vec![VariableDef {
+      name: "product_url".to_string(),
+      description: None,
+      default: Some("https://fallback.test".to_string()),
+      choices: values.iter().map(|v| v.to_string()).collect(),
+      unique,
+    }];
+    scenario
+  }
+
+  fn deal(scenario: &Scenario, overrides: &HashMap<String, String>, count: usize) -> Vec<String> {
+    let decks = scenario.shuffle_decks(overrides);
+    (0..count)
+      .map(|index| {
+        scenario
+          .resolve_variables_for(overrides, index, &decks)
+          .get("product_url")
+          .cloned()
+          .unwrap_or_default()
+      })
+      .collect()
+  }
+
   #[test]
   fn variables_substitute_and_override_defaults() {
     let scenario = Scenario::builtin_warmup();
-    let resolved = scenario.resolve_variables(&HashMap::new());
+    let decks = scenario.shuffle_decks(&HashMap::new());
+    let resolved = scenario.resolve_variables_for(&HashMap::new(), 0, &decks);
     assert_eq!(
       resolved.get("start_url").map(String::as_str),
       Some("https://www.wikipedia.org")
     );
 
     let overrides = HashMap::from([("start_url".to_string(), "https://example.com".to_string())]);
-    let resolved = scenario.resolve_variables(&overrides);
+    let resolved = scenario.resolve_variables_for(&overrides, 0, &decks);
     assert_eq!(
       substitute("{{start_url}}/path", &resolved),
       "https://example.com/path"
     );
+  }
+
+  #[test]
+  fn a_pool_deals_a_different_value_to_every_profile() {
+    // The bug this exists to catch: a batch pointing every profile at one URL.
+    let scenario = pooled(&["a", "b", "c", "d"], false);
+    for _ in 0..50 {
+      let dealt = deal(&scenario, &HashMap::new(), 4);
+      let distinct: std::collections::HashSet<&String> = dealt.iter().collect();
+      assert_eq!(distinct.len(), 4, "profiles shared a value: {dealt:?}");
+    }
+  }
+
+  #[test]
+  fn a_pool_smaller_than_the_batch_wraps_instead_of_failing() {
+    let scenario = pooled(&["a", "b"], false);
+    let dealt = deal(&scenario, &HashMap::new(), 4);
+    assert_eq!(dealt[0], dealt[2]);
+    assert_eq!(dealt[1], dealt[3]);
+    assert_ne!(dealt[0], dealt[1]);
+  }
+
+  #[test]
+  fn a_unique_pool_that_cannot_cover_the_batch_is_reported() {
+    let scenario = pooled(&["a", "b"], true);
+    assert_eq!(
+      scenario.undersized_unique_pool(&HashMap::new(), 3),
+      Some(("product_url", 2))
+    );
+    assert_eq!(scenario.undersized_unique_pool(&HashMap::new(), 2), None);
+    assert_eq!(scenario.undersized_unique_pool(&HashMap::new(), 1), None);
+  }
+
+  #[test]
+  fn a_pool_without_unique_is_never_reported_as_undersized() {
+    let scenario = pooled(&["a"], false);
+    assert_eq!(scenario.undersized_unique_pool(&HashMap::new(), 9), None);
+  }
+
+  #[test]
+  fn pinning_a_pooled_variable_gives_every_profile_the_same_value() {
+    let scenario = pooled(&["a", "b", "c"], true);
+    let overrides = HashMap::from([("product_url".to_string(), "pinned".to_string())]);
+    assert_eq!(deal(&scenario, &overrides, 3), vec!["pinned"; 3]);
+    // A deliberate pin is not an undersized pool.
+    assert_eq!(scenario.undersized_unique_pool(&overrides, 99), None);
+  }
+
+  #[test]
+  fn a_blank_override_does_not_shadow_the_pool() {
+    // The run dialog sends one entry per declared variable, blank when the field
+    // was left alone — treating that as a real value would empty every URL.
+    let scenario = pooled(&["a", "b", "c"], false);
+    let overrides = HashMap::from([("product_url".to_string(), "   ".to_string())]);
+    let dealt = deal(&scenario, &overrides, 3);
+    assert!(
+      dealt
+        .iter()
+        .all(|value| ["a", "b", "c"].contains(&&**value)),
+      "blank override leaked through: {dealt:?}"
+    );
+  }
+
+  #[test]
+  fn a_variable_with_no_pool_falls_back_to_its_default() {
+    let mut scenario = pooled(&[], false);
+    scenario.variables[0].choices.clear();
+    assert_eq!(
+      deal(&scenario, &HashMap::new(), 2),
+      vec!["https://fallback.test"; 2]
+    );
+  }
+
+  #[test]
+  fn undeclared_overrides_still_substitute() {
+    let scenario = Scenario::builtin_warmup();
+    let overrides = HashMap::from([("extra".to_string(), "value".to_string())]);
+    let resolved = scenario.resolve_variables_for(&overrides, 0, &VariableDecks::new());
+    assert_eq!(resolved.get("extra").map(String::as_str), Some("value"));
+  }
+
+  #[test]
+  fn shuffle_keeps_every_card() {
+    let mut deck: Vec<u32> = (0..64).collect();
+    shuffle(&mut deck);
+    deck.sort_unstable();
+    assert_eq!(deck, (0..64).collect::<Vec<u32>>());
+  }
+
+  #[test]
+  fn shuffle_handles_degenerate_lengths() {
+    shuffle::<u32>(&mut []);
+    let mut one = [7];
+    shuffle(&mut one);
+    assert_eq!(one, [7]);
   }
 
   #[test]
@@ -514,8 +764,26 @@ mod tests {
         url: "https://a.test".to_string(),
         wait_for_load: true,
         timeout_secs: 30,
+        referrer: None,
       }
     );
+
+    // Older stored scenarios predate both fields and must keep deserializing.
+    let step: Step = serde_json::from_str(r#"{"type":"click_random_link"}"#).unwrap();
+    assert_eq!(
+      step,
+      Step::ClickRandomLink {
+        same_domain_only: true,
+        exclude_patterns: Vec::new(),
+        include_patterns: Vec::new(),
+        wait_for_load: true,
+        timeout_secs: 30,
+      }
+    );
+
+    let variable: VariableDef = serde_json::from_str(r#"{"name":"a"}"#).unwrap();
+    assert!(variable.choices.is_empty());
+    assert!(!variable.unique);
 
     let step: Step = serde_json::from_str(r#"{"type":"scroll"}"#).unwrap();
     assert_eq!(

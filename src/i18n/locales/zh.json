@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "请至少选择一个配置文件来运行。",
     "automationConcurrencyInvalid": "并发数必须在 1 到 {{max}} 之间。",
     "automationJitterRangeInvalid": "最小启动延迟不能超过最大值。",
+    "automationVariablePoolTooSmall": "\"{{name}}\" 值池只有 {{pool}} 个值，但本次运行涉及 {{profiles}} 个配置文件。请增加取值或关闭 \"unique\"。",
     "automationProfileNotChromium": "配置文件“{{name}}”不是 Chromium 配置文件，无法自动化。",
     "automationProfileAlreadyRunning": "配置文件“{{name}}”已在运行。请先停止再自动化。",
     "automationNoLinkFound": "页面上未找到合适的链接。",
     "automationNoEligibleProfiles": "目标配置文件当前都无法自动化。",
-    "automationLinkClickFailed": "已点击页面上找到的链接，但没有一个发生跳转。"
+    "automationLinkClickFailed": "已点击页面上找到的链接，但没有一个发生跳转。",
+    "automationRunStillRunning": "删除历史前请先停止此自动化运行。",
+    "automationScreenshotNotFound": "该截图文件已不存在。"
   },
   "rail": {
     "profiles": "配置文件",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "说明",
       "descriptionPlaceholder": "该流程的作用",
       "variablesLabel": "变量",
-      "variablesHint": "运行时填入的值。在步骤中用 {{'{{'}}name{{'}}'}} 引用。",
+      "variablesHint": "运行时填入的值。在步骤中用 {{'{{'}}name{{'}}'}} 引用。给它一个 \"choices\" 列表，批次中的每个配置文件就会取到不同的值。",
       "stepsLabel": "步骤",
       "stepsHint": "自上而下执行。浏览器在第一步前启动，最后一步后关闭。",
       "invalidJson": "这不是有效的 JSON。",
@@ -2126,6 +2129,7 @@
       "title": "运行 {{name}}",
       "description": "每个选中的配置文件会被启动、执行各步骤，然后关闭。",
       "variablesLabel": "变量",
+      "variablePoolHint": "{{count}} 个值 — 每个配置文件各取其一。",
       "profilesLabel": "配置文件",
       "profilesHint": "只有尚未运行的 Chromium 配置文件才能自动化。",
       "noEligibleProfiles": "没有符合条件的配置文件。自动化需要一个未运行的 Chromium 配置文件。",
@@ -2169,7 +2173,29 @@
         "completed": "已完成",
         "failed": "失败",
         "cancelled": "已取消"
-      }
+      },
+      "screenshot": "截图 {{index}}",
+      "expandRun": "展开运行",
+      "collapseRun": "折叠运行",
+      "deleteRun": "删除运行",
+      "deleteAll": "删除所有历史",
+      "runDeleted": "运行历史已删除",
+      "allDeleted": "已删除 {{count}} 条运行历史",
+      "deleteRunTitle": "删除运行历史",
+      "deleteRunDescription": "要删除“{{name}}”的运行历史吗？此操作无法撤销。",
+      "deleteAllTitle": "删除所有运行历史",
+      "deleteAllDescription": "要删除所有已完成和已取消的运行历史吗？正在运行的自动化会保留。"
+    },
+    "scenarioSyncEnabled": "已开启场景同步",
+    "scenarioSyncDisabled": "已关闭场景同步",
+    "table": {
+      "name": "名称",
+      "steps": "步骤",
+      "sync": "同步",
+      "updated": "更新时间",
+      "actions": "操作",
+      "never": "从未",
+      "syncScenario": "同步 {{name}}"
     }
   }
 }

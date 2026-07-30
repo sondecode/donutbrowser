@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "실행할 프로필을 하나 이상 선택하세요.",
     "automationConcurrencyInvalid": "동시 실행 수는 1에서 {{max}} 사이여야 합니다.",
     "automationJitterRangeInvalid": "최소 실행 지연은 최대값을 넘을 수 없습니다.",
+    "automationVariablePoolTooSmall": "\"{{name}}\" 풀에는 값이 {{pool}}개뿐이지만 이 실행은 프로필 {{profiles}}개를 대상으로 합니다. 값을 추가하거나 \"unique\"를 끄세요.",
     "automationProfileNotChromium": "프로필 \"{{name}}\"은(는) Chromium 프로필이 아니므로 자동화할 수 없습니다.",
     "automationProfileAlreadyRunning": "프로필 \"{{name}}\"이(가) 이미 실행 중입니다. 자동화하기 전에 중지하세요.",
     "automationNoLinkFound": "페이지에서 적절한 링크를 찾지 못했습니다.",
     "automationNoEligibleProfiles": "대상 프로필 중 지금 자동화할 수 있는 것이 없습니다.",
-    "automationLinkClickFailed": "페이지에서 찾은 링크를 클릭했지만 어느 것도 이동하지 않았습니다."
+    "automationLinkClickFailed": "페이지에서 찾은 링크를 클릭했지만 어느 것도 이동하지 않았습니다.",
+    "automationRunStillRunning": "기록을 삭제하기 전에 이 자동화 실행을 중지하세요.",
+    "automationScreenshotNotFound": "해당 스크린샷 파일이 더 이상 없습니다."
   },
   "rail": {
     "profiles": "프로필",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "설명",
       "descriptionPlaceholder": "이 흐름이 하는 일",
       "variablesLabel": "변수",
-      "variablesHint": "실행 시 채워지는 값입니다. 단계에서 {{'{{'}}name{{'}}'}} 형태로 참조하세요.",
+      "variablesHint": "실행 시 채워지는 값입니다. 단계에서 {{'{{'}}name{{'}}'}} 형태로 참조하세요. \"choices\" 목록을 주면 배치의 각 프로필이 서로 다른 값을 받습니다.",
       "stepsLabel": "단계",
       "stepsHint": "위에서 아래로 실행됩니다. 브라우저는 첫 단계 전에 열리고 마지막 단계 후에 닫힙니다.",
       "invalidJson": "올바른 JSON이 아닙니다.",
@@ -2126,6 +2129,7 @@
       "title": "{{name}} 실행",
       "description": "선택한 각 프로필을 실행해 단계를 진행한 뒤 종료합니다.",
       "variablesLabel": "변수",
+      "variablePoolHint": "값 {{count}}개 — 프로필마다 다른 값이 사용됩니다.",
       "profilesLabel": "프로필",
       "profilesHint": "실행 중이 아닌 Chromium 프로필만 자동화할 수 있습니다.",
       "noEligibleProfiles": "적합한 프로필이 없습니다. 자동화에는 실행 중이 아닌 Chromium 프로필이 필요합니다.",
@@ -2169,7 +2173,29 @@
         "completed": "완료",
         "failed": "실패",
         "cancelled": "취소됨"
-      }
+      },
+      "screenshot": "스크린샷 {{index}}",
+      "expandRun": "실행 펼치기",
+      "collapseRun": "실행 접기",
+      "deleteRun": "실행 삭제",
+      "deleteAll": "모든 기록 삭제",
+      "runDeleted": "실행 기록이 삭제되었습니다",
+      "allDeleted": "실행 기록 {{count}}개를 삭제했습니다",
+      "deleteRunTitle": "실행 기록 삭제",
+      "deleteRunDescription": "\"{{name}}\" 실행 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
+      "deleteAllTitle": "모든 실행 기록 삭제",
+      "deleteAllDescription": "완료 및 취소된 실행 기록을 모두 삭제할까요? 실행 중인 자동화는 유지됩니다."
+    },
+    "scenarioSyncEnabled": "시나리오 동기화가 켜졌습니다",
+    "scenarioSyncDisabled": "시나리오 동기화가 꺼졌습니다",
+    "table": {
+      "name": "이름",
+      "steps": "단계",
+      "sync": "동기화",
+      "updated": "업데이트",
+      "actions": "작업",
+      "never": "없음",
+      "syncScenario": "{{name}} 동기화"
     }
   }
 }

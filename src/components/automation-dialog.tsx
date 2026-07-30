@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { GoPlus } from "react-icons/go";
 import {
+  LuChevronDown,
+  LuChevronRight,
   LuCircleStop,
   LuImage,
   LuPencil,
@@ -14,6 +16,7 @@ import {
 import { AutomationRunDialog } from "@/components/automation-run-dialog";
 import { AutomationScenarioDialog } from "@/components/automation-scenario-dialog";
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog";
+import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import {
   AnimatedTabs,
   AnimatedTabsContent,
@@ -30,6 +33,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Tooltip,
   TooltipContent,
@@ -83,7 +94,13 @@ function useCountdown(waitingUntil: number | undefined): number | null {
   return Math.max(0, waitingUntil - now);
 }
 
-function ProfileRunRow({ run }: { run: AutomationProfileRun }) {
+function ProfileRunRow({
+  run,
+  onOpenScreenshot,
+}: {
+  run: AutomationProfileRun;
+  onOpenScreenshot: (path: string) => void;
+}) {
   const { t } = useTranslation();
   const remaining = useCountdown(run.waiting_until);
   const completedSteps =
@@ -122,20 +139,33 @@ function ProfileRunRow({ run }: { run: AutomationProfileRun }) {
             ? ` · ${t("automation.runs.waiting", { seconds: remaining })}`
             : ""}
         </span>
-        {run.screenshots.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex shrink-0 items-center gap-1">
-                <LuImage className="size-3" />
-                {run.screenshots.length}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-md break-all">
-              {run.screenshots.join("\n")}
-            </TooltipContent>
-          </Tooltip>
-        )}
       </div>
+
+      {run.screenshots.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {run.screenshots.map((path, index) => (
+            <Tooltip key={path}>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-xs"
+                  onClick={() => {
+                    onOpenScreenshot(path);
+                  }}
+                >
+                  <LuImage className="size-3.5" />
+                  {t("automation.runs.screenshot", { index: index + 1 })}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-md break-all">
+                {path}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+      )}
 
       {run.error && (
         <p className="text-xs text-destructive break-words">{run.error}</p>
@@ -144,12 +174,20 @@ function ProfileRunRow({ run }: { run: AutomationProfileRun }) {
   );
 }
 
-function RunCard({
+function RunHistoryItem({
   run,
+  expanded,
+  onToggle,
   onCancel,
+  onDelete,
+  onOpenScreenshot,
 }: {
   run: AutomationRun;
+  expanded: boolean;
+  onToggle: (runId: string) => void;
   onCancel: (runId: string) => void;
+  onDelete: (run: AutomationRun) => void;
+  onOpenScreenshot: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const finished = run.profiles.filter((p) =>
@@ -158,11 +196,29 @@ function RunCard({
 
   return (
     <div className="rounded-md border">
-      <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
+      <div className="flex items-center justify-between gap-2 bg-muted/30 px-3 py-2">
         <div className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-medium">
-            {run.scenario_name}
-          </span>
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-2 text-left"
+            onClick={() => {
+              onToggle(run.id);
+            }}
+            aria-label={t(
+              expanded
+                ? "automation.runs.collapseRun"
+                : "automation.runs.expandRun",
+            )}
+          >
+            {expanded ? (
+              <LuChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <LuChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            )}
+            <span className="truncate text-sm font-medium">
+              {run.scenario_name}
+            </span>
+          </button>
           <span className="text-xs text-muted-foreground">
             {t("automation.runs.summary", {
               finished,
@@ -187,13 +243,36 @@ function RunCard({
               {t("automation.runs.cancelRun")}
             </Button>
           )}
+          {run.status !== "running" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("automation.runs.deleteRun")}
+                  onClick={() => {
+                    onDelete(run);
+                  }}
+                >
+                  <LuTrash2 className="size-4 text-destructive" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("automation.runs.deleteRun")}</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </div>
-      <div className="divide-y">
-        {run.profiles.map((profileRun) => (
-          <ProfileRunRow key={profileRun.profile_id} run={profileRun} />
-        ))}
-      </div>
+      {expanded && (
+        <div className="divide-y border-t">
+          {run.profiles.map((profileRun) => (
+            <ProfileRunRow
+              key={profileRun.profile_id}
+              run={profileRun}
+              onOpenScreenshot={onOpenScreenshot}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -213,10 +292,24 @@ export function AutomationDialog({
   const [editing, setEditing] = useState<AutomationScenario | null>(null);
   const [runTarget, setRunTarget] = useState<AutomationScenario | null>(null);
   const [deleting, setDeleting] = useState<AutomationScenario | null>(null);
+  const [deletingRun, setDeletingRun] = useState<AutomationRun | null>(null);
+  const [deleteAllRunsOpen, setDeleteAllRunsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeletingRun, setIsDeletingRun] = useState(false);
+  const [isDeletingAllRuns, setIsDeletingAllRuns] = useState(false);
+  const [isTogglingSync, setIsTogglingSync] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const activeRuns = useMemo(
     () => runs.filter((run) => run.status === "running").length,
+    [runs],
+  );
+  const finishedRuns = useMemo(
+    () => runs.filter((run) => run.status !== "running").length,
     [runs],
   );
 
@@ -235,6 +328,35 @@ export function AutomationDialog({
     }
   }, [deleting, loadScenarios, t]);
 
+  const handleToggleScenarioSync = useCallback(
+    async (scenario: AutomationScenario, enabled: boolean) => {
+      setIsTogglingSync((prev) => ({ ...prev, [scenario.id]: true }));
+      try {
+        await invoke<AutomationScenario>(
+          "set_automation_scenario_sync_enabled",
+          { scenarioId: scenario.id, enabled },
+        );
+        showSuccessToast(
+          t(
+            enabled
+              ? "automation.scenarioSyncEnabled"
+              : "automation.scenarioSyncDisabled",
+          ),
+        );
+        await loadScenarios();
+      } catch (err) {
+        showErrorToast(translateBackendError(t, err));
+      } finally {
+        setIsTogglingSync((prev) => {
+          const next = { ...prev };
+          delete next[scenario.id];
+          return next;
+        });
+      }
+    },
+    [loadScenarios, t],
+  );
+
   const handleCancelRun = useCallback(
     (runId: string) => {
       void (async () => {
@@ -248,6 +370,60 @@ export function AutomationDialog({
     },
     [t],
   );
+
+  const handleOpenScreenshot = useCallback(
+    (path: string) => {
+      void (async () => {
+        try {
+          await invoke("open_automation_screenshot", { path });
+        } catch (err) {
+          showErrorToast(translateBackendError(t, err));
+        }
+      })();
+    },
+    [t],
+  );
+
+  const handleDeleteRun = useCallback(async () => {
+    if (!deletingRun) return;
+    setIsDeletingRun(true);
+    try {
+      await invoke("delete_automation_run", { runId: deletingRun.id });
+      showSuccessToast(t("automation.runs.runDeleted"));
+      setDeletingRun(null);
+      await loadRuns();
+    } catch (err) {
+      showErrorToast(translateBackendError(t, err));
+    } finally {
+      setIsDeletingRun(false);
+    }
+  }, [deletingRun, loadRuns, t]);
+
+  const handleDeleteAllRuns = useCallback(async () => {
+    setIsDeletingAllRuns(true);
+    try {
+      const deleted = await invoke<number>("delete_all_automation_runs");
+      showSuccessToast(t("automation.runs.allDeleted", { count: deleted }));
+      setDeleteAllRunsOpen(false);
+      await loadRuns();
+    } catch (err) {
+      showErrorToast(translateBackendError(t, err));
+    } finally {
+      setIsDeletingAllRuns(false);
+    }
+  }, [loadRuns, t]);
+
+  const toggleRunExpanded = useCallback((runId: string) => {
+    setExpandedRunIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(runId)) {
+        next.delete(runId);
+      } else {
+        next.add(runId);
+      }
+      return next;
+    });
+  }, []);
 
   /** Fetch the authoritative copy before editing, in case MCP changed it. */
   const openEditor = useCallback(
@@ -324,78 +500,118 @@ export function AutomationDialog({
                     {t("automation.emptyScenarios")}
                   </p>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                    {scenarios.map((scenario) => (
-                      <div
-                        key={scenario.id}
-                        className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5"
-                      >
-                        <div className="flex min-w-0 flex-col">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-medium">
-                              {scenario.name}
-                            </span>
-                            {scenario.built_in && (
-                              <Badge variant="secondary">
-                                {t("automation.builtIn")}
-                              </Badge>
-                            )}
-                          </div>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {scenario.description ??
-                              t("automation.stepCount", {
-                                count: scenario.steps.length,
+                  <Table containerClassName="rounded-md border">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t("automation.table.name")}</TableHead>
+                        <TableHead>{t("automation.table.steps")}</TableHead>
+                        <TableHead>{t("automation.table.sync")}</TableHead>
+                        <TableHead>{t("automation.table.updated")}</TableHead>
+                        <TableHead className="text-right">
+                          {t("automation.table.actions")}
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {scenarios.map((scenario) => (
+                        <TableRow key={scenario.id}>
+                          <TableCell className="min-w-56">
+                            <div className="flex min-w-0 flex-col gap-1">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate font-medium">
+                                  {scenario.name}
+                                </span>
+                                {scenario.built_in && (
+                                  <Badge variant="secondary">
+                                    {t("automation.builtIn")}
+                                  </Badge>
+                                )}
+                              </div>
+                              {scenario.description && (
+                                <span className="max-w-md truncate text-xs text-muted-foreground">
+                                  {scenario.description}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {t("automation.stepCount", {
+                              count: scenario.steps.length,
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            <AnimatedSwitch
+                              checked={scenario.sync_enabled ?? true}
+                              disabled={isTogglingSync[scenario.id]}
+                              aria-label={t("automation.table.syncScenario", {
+                                name: scenario.name,
                               })}
-                          </span>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setRunTarget(scenario);
-                            }}
-                          >
-                            <LuPlay className="size-4" />
-                            {t("common.buttons.start")}
-                          </Button>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
+                              onCheckedChange={(checked) => {
+                                void handleToggleScenarioSync(
+                                  scenario,
+                                  checked,
+                                );
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {scenario.updated_at
+                              ? new Date(
+                                  scenario.updated_at * 1000,
+                                ).toLocaleString()
+                              : t("automation.table.never")}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex justify-end gap-1">
                               <Button
-                                variant="ghost"
-                                size="icon"
-                                aria-label={t("common.buttons.edit")}
+                                size="sm"
                                 onClick={() => {
-                                  void openEditor(scenario);
+                                  setRunTarget(scenario);
                                 }}
                               >
-                                <LuPencil className="size-4" />
+                                <LuPlay className="size-4" />
+                                {t("common.buttons.start")}
                               </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t("common.buttons.edit")}
-                            </TooltipContent>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                aria-label={t("common.buttons.delete")}
-                                onClick={() => {
-                                  setDeleting(scenario);
-                                }}
-                              >
-                                <LuTrash2 className="size-4 text-destructive" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t("common.buttons.delete")}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={t("common.buttons.edit")}
+                                    onClick={() => {
+                                      void openEditor(scenario);
+                                    }}
+                                  >
+                                    <LuPencil className="size-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {t("common.buttons.edit")}
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={t("common.buttons.delete")}
+                                    onClick={() => {
+                                      setDeleting(scenario);
+                                    }}
+                                  >
+                                    <LuTrash2 className="size-4 text-destructive" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {t("common.buttons.delete")}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
               </AnimatedTabsContent>
 
@@ -409,11 +625,28 @@ export function AutomationDialog({
                   </p>
                 ) : (
                   <div className="flex flex-col gap-3">
+                    <div className="flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={finishedRuns === 0}
+                        onClick={() => {
+                          setDeleteAllRunsOpen(true);
+                        }}
+                      >
+                        <LuTrash2 className="size-4" />
+                        {t("automation.runs.deleteAll")}
+                      </Button>
+                    </div>
                     {runs.map((run) => (
-                      <RunCard
+                      <RunHistoryItem
                         key={run.id}
                         run={run}
+                        expanded={expandedRunIds.has(run.id)}
+                        onToggle={toggleRunExpanded}
                         onCancel={handleCancelRun}
+                        onDelete={setDeletingRun}
+                        onOpenScreenshot={handleOpenScreenshot}
                       />
                     ))}
                   </div>
@@ -459,6 +692,36 @@ export function AutomationDialog({
         })}
         confirmButtonVariant="destructive"
         isLoading={isDeleting}
+      />
+
+      <DeleteConfirmationDialog
+        isOpen={deletingRun !== null}
+        onClose={() => {
+          setDeletingRun(null);
+        }}
+        onConfirm={() => {
+          void handleDeleteRun();
+        }}
+        title={t("automation.runs.deleteRunTitle")}
+        description={t("automation.runs.deleteRunDescription", {
+          name: deletingRun?.scenario_name ?? "",
+        })}
+        confirmButtonVariant="destructive"
+        isLoading={isDeletingRun}
+      />
+
+      <DeleteConfirmationDialog
+        isOpen={deleteAllRunsOpen}
+        onClose={() => {
+          setDeleteAllRunsOpen(false);
+        }}
+        onConfirm={() => {
+          void handleDeleteAllRuns();
+        }}
+        title={t("automation.runs.deleteAllTitle")}
+        description={t("automation.runs.deleteAllDescription")}
+        confirmButtonVariant="destructive"
+        isLoading={isDeletingAllRuns}
       />
     </>
   );

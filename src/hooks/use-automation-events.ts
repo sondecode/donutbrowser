@@ -48,7 +48,7 @@ export function useAutomationEvents(): UseAutomationEventsReturn {
   }, [loadScenarios, loadRuns]);
 
   useEffect(() => {
-    const unlisten = listen<AutomationRun>(
+    const unlistenRun = listen<AutomationRun>(
       "automation-run-updated",
       (event) => {
         const updated = event.payload;
@@ -61,13 +61,19 @@ export function useAutomationEvents(): UseAutomationEventsReturn {
         });
       },
     );
+    const unlistenScenarios = listen("automation-scenarios-changed", () => {
+      void loadScenarios();
+    });
 
     return () => {
-      void unlisten.then((fn) => {
+      void unlistenRun.then((fn) => {
+        fn();
+      });
+      void unlistenScenarios.then((fn) => {
         fn();
       });
     };
-  }, []);
+  }, [loadScenarios]);
 
   return { scenarios, runs, isLoading, loadScenarios, loadRuns };
 }

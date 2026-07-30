@@ -37,6 +37,7 @@ pub struct SyncScheduler {
   pending_vpns: Arc<Mutex<HashSet<String>>>,
   pending_extensions: Arc<Mutex<HashSet<String>>>,
   pending_extension_groups: Arc<Mutex<HashSet<String>>>,
+  pending_automation_scenarios: Arc<Mutex<bool>>,
   pending_tombstones: Arc<Mutex<Vec<(String, String)>>>,
   running_profiles: Arc<Mutex<HashSet<String>>>,
   in_flight_profiles: Arc<Mutex<HashSet<String>>>,
@@ -58,6 +59,7 @@ impl SyncScheduler {
       pending_vpns: Arc::new(Mutex::new(HashSet::new())),
       pending_extensions: Arc::new(Mutex::new(HashSet::new())),
       pending_extension_groups: Arc::new(Mutex::new(HashSet::new())),
+      pending_automation_scenarios: Arc::new(Mutex::new(false)),
       pending_tombstones: Arc::new(Mutex::new(Vec::new())),
       running_profiles: Arc::new(Mutex::new(HashSet::new())),
       in_flight_profiles: Arc::new(Mutex::new(HashSet::new())),
@@ -115,6 +117,12 @@ impl SyncScheduler {
       return true;
     }
     drop(pending_extension_groups);
+
+    let pending_automation_scenarios = self.pending_automation_scenarios.lock().await;
+    if *pending_automation_scenarios {
+      return true;
+    }
+    drop(pending_automation_scenarios);
 
     let pending_tombstones = self.pending_tombstones.lock().await;
     if !pending_tombstones.is_empty() {
@@ -238,6 +246,11 @@ impl SyncScheduler {
     pending.insert(extension_group_id);
   }
 
+  pub async fn queue_automation_scenarios_sync(&self) {
+    let mut pending = self.pending_automation_scenarios.lock().await;
+    *pending = true;
+  }
+
   pub async fn queue_tombstone(&self, entity_type: String, entity_id: String) {
     let mut pending = self.pending_tombstones.lock().await;
     if !pending
@@ -339,6 +352,7 @@ impl SyncScheduler {
               SyncWorkItem::Vpn(id) => scheduler.queue_vpn_sync(id).await,
               SyncWorkItem::Extension(id) => scheduler.queue_extension_sync(id).await,
               SyncWorkItem::ExtensionGroup(id) => scheduler.queue_extension_group_sync(id).await,
+              SyncWorkItem::AutomationScenarios => scheduler.queue_automation_scenarios_sync().await,
               SyncWorkItem::Tombstone(entity_type, entity_id) => {
                 scheduler.queue_tombstone(entity_type, entity_id).await
               }
@@ -361,6 +375,7 @@ impl SyncScheduler {
     self.process_pending_vpns(app_handle).await;
     self.process_pending_extensions(app_handle).await;
     self.process_pending_extension_groups(app_handle).await;
+    self.process_pending_automation_scenarios(app_handle).await;
     self.process_pending_tombstones(app_handle).await;
   }
 
@@ -723,6 +738,53 @@ impl SyncScheduler {
       }
       Err(e) => {
         log::error!("Failed to create sync engine: {}", e);
+      }
+    }
+  }
+
+  async fn process_pending_automation_scenarios(&self, app_handle: &tauri::AppHandle) {
+    let should_sync = {
+      let mut pending = self.pending_automation_scenarios.lock().await;
+      std::mem::take(&mut *pending)
+    };
+
+    if !should_sync {
+      return;
+    }
+
+    let _ = events::emit(
+      "automation-scenarios-sync-status",
+      serde_json::json!({ "status": "syncing" }),
+    );
+
+    match SyncEngine::create_from_settings(app_handle).await {
+      Ok(engine) => match engine.sync_automation_scenarios(Some(app_handle)).await {
+        Ok(()) => {
+          let _ = events::emit(
+            "automation-scenarios-sync-status",
+            serde_json::json!({ "status": "synced" }),
+          );
+        }
+        Err(e) => {
+          log::error!("Failed to sync automation scenarios: {}", e);
+          let _ = events::emit(
+            "automation-scenarios-sync-status",
+            serde_json::json!({
+              "status": "error",
+              "error": e.to_string()
+            }),
+          );
+        }
+      },
+      Err(e) => {
+        log::error!("Failed to create sync engine: {}", e);
+        let _ = events::emit(
+          "automation-scenarios-sync-status",
+          serde_json::json!({
+            "status": "error",
+            "error": e
+          }),
+        );
       }
     }
   }

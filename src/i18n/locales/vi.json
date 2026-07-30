@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "Hãy chọn ít nhất một profile để chạy.",
     "automationConcurrencyInvalid": "Số chạy song song phải từ 1 đến {{max}}.",
     "automationJitterRangeInvalid": "Độ trễ khởi động nhỏ nhất không được lớn hơn giá trị lớn nhất.",
+    "automationVariablePoolTooSmall": "Nhóm \"{{name}}\" chỉ có {{pool}} giá trị nhưng lần chạy này nhắm tới {{profiles}} profile. Hãy thêm giá trị hoặc tắt \"unique\".",
     "automationProfileNotChromium": "Profile \"{{name}}\" không phải profile Chromium nên không thể tự động hoá.",
     "automationProfileAlreadyRunning": "Profile \"{{name}}\" đang chạy. Hãy tắt nó trước khi tự động hoá.",
     "automationNoLinkFound": "Không tìm thấy link phù hợp trên trang.",
     "automationNoEligibleProfiles": "Không có profile nào trong số đã chọn có thể tự động hoá ngay lúc này.",
-    "automationLinkClickFailed": "Đã click các link tìm được trên trang nhưng không link nào điều hướng đi đâu."
+    "automationLinkClickFailed": "Đã click các link tìm được trên trang nhưng không link nào điều hướng đi đâu.",
+    "automationRunStillRunning": "Hãy dừng lần chạy tự động hoá này trước khi xoá lịch sử.",
+    "automationScreenshotNotFound": "File ảnh chụp màn hình này không còn tồn tại."
   },
   "rail": {
     "profiles": "Profile",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "Mô tả",
       "descriptionPlaceholder": "Quy trình này làm gì",
       "variablesLabel": "Biến",
-      "variablesHint": "Giá trị được điền khi chạy. Tham chiếu trong các bước bằng {{'{{'}}name{{'}}'}}.",
+      "variablesHint": "Giá trị được điền khi chạy. Tham chiếu trong các bước bằng {{'{{'}}name{{'}}'}}. Nếu khai báo danh sách \"choices\", mỗi profile trong lô sẽ nhận một giá trị khác nhau.",
       "stepsLabel": "Các bước",
       "stepsHint": "Chạy từ trên xuống. Trình duyệt mở trước bước đầu và tắt sau bước cuối.",
       "invalidJson": "JSON không hợp lệ.",
@@ -2126,6 +2129,7 @@
       "title": "Chạy {{name}}",
       "description": "Mỗi profile được chọn sẽ được khởi động, chạy qua các bước, rồi tắt.",
       "variablesLabel": "Biến",
+      "variablePoolHint": "{{count}} giá trị — mỗi profile nhận một giá trị khác nhau.",
       "profilesLabel": "Profile",
       "profilesHint": "Chỉ profile Chromium chưa chạy mới có thể tự động hoá.",
       "noEligibleProfiles": "Không có profile phù hợp. Tự động hoá cần một profile Chromium đang tắt.",
@@ -2169,7 +2173,29 @@
         "completed": "Xong",
         "failed": "Lỗi",
         "cancelled": "Đã huỷ"
-      }
+      },
+      "screenshot": "Ảnh {{index}}",
+      "expandRun": "Mở rộng lần chạy",
+      "collapseRun": "Thu gọn lần chạy",
+      "deleteRun": "Xoá lần chạy",
+      "deleteAll": "Xoá tất cả lịch sử",
+      "runDeleted": "Đã xoá lịch sử chạy",
+      "allDeleted": "Đã xoá {{count}} lịch sử chạy",
+      "deleteRunTitle": "Xoá lịch sử chạy",
+      "deleteRunDescription": "Xoá lịch sử chạy của \"{{name}}\"? Không thể hoàn tác.",
+      "deleteAllTitle": "Xoá tất cả lịch sử chạy",
+      "deleteAllDescription": "Xoá tất cả lịch sử đã hoàn tất và đã huỷ? Các tự động hoá đang chạy sẽ được giữ lại."
+    },
+    "scenarioSyncEnabled": "Đã bật đồng bộ kịch bản",
+    "scenarioSyncDisabled": "Đã tắt đồng bộ kịch bản",
+    "table": {
+      "name": "Tên",
+      "steps": "Bước",
+      "sync": "Đồng bộ",
+      "updated": "Cập nhật",
+      "actions": "Thao tác",
+      "never": "Chưa bao giờ",
+      "syncScenario": "Đồng bộ {{name}}"
     }
   }
 }

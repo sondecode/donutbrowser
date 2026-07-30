@@ -19,6 +19,7 @@ use tokio::sync::{Mutex as TokioMutex, Semaphore};
 /// entity's user-edit timestamp in unix seconds. Used to resolve sync conflicts
 /// (last-write-wins) from a HEAD request without downloading the object body.
 const UPDATED_AT_META_KEY: &str = "updated-at";
+const AUTOMATION_SCENARIOS_KEY: &str = "automation_scenarios.json";
 
 lazy_static::lazy_static! {
   static ref SYNC_CANCEL_FLAGS: StdMutex<HashMap<String, Arc<AtomicBool>>> =
@@ -442,6 +443,87 @@ impl SyncEngine {
         presign.metadata.as_ref(),
       )
       .await?;
+    Ok(())
+  }
+
+  pub async fn sync_automation_scenarios(
+    &self,
+    app_handle: Option<&tauri::AppHandle>,
+  ) -> SyncResult<()> {
+    let store = crate::automation::storage::ScenarioStore::new();
+    let local = store
+      .sync_payload()
+      .map_err(|e| SyncError::IoError(format!("Failed to load automation scenarios: {e}")))?;
+    let local_updated = local.updated_at.unwrap_or(0);
+    let stat = self.client.stat(AUTOMATION_SCENARIOS_KEY).await?;
+
+    match stat.exists {
+      true => {
+        let remote_updated = self
+          .remote_updated_at(&stat, AUTOMATION_SCENARIOS_KEY)
+          .await;
+        if remote_updated > local_updated {
+          self.download_automation_scenarios(app_handle).await?;
+        } else if local_updated > remote_updated {
+          self.upload_automation_scenarios(&local).await?;
+        }
+      }
+      false => {
+        if !local.scenarios.is_empty() {
+          self.upload_automation_scenarios(&local).await?;
+        }
+      }
+    }
+
+    Ok(())
+  }
+
+  async fn upload_automation_scenarios(
+    &self,
+    data: &crate::automation::storage::ScenariosData,
+  ) -> SyncResult<()> {
+    let json = serde_json::to_string_pretty(data).map_err(|e| {
+      SyncError::SerializationError(format!("Failed to serialize automation scenarios: {e}"))
+    })?;
+    self
+      .upload_config_json(
+        AUTOMATION_SCENARIOS_KEY,
+        &json,
+        data.updated_at.unwrap_or(0),
+      )
+      .await?;
+    log::info!(
+      "Automation scenarios uploaded ({} synced scenario(s))",
+      data.scenarios.len()
+    );
+    Ok(())
+  }
+
+  async fn download_automation_scenarios(
+    &self,
+    app_handle: Option<&tauri::AppHandle>,
+  ) -> SyncResult<()> {
+    let presign = self
+      .client
+      .presign_download(AUTOMATION_SCENARIOS_KEY)
+      .await?;
+    let raw = self.client.download_bytes(&presign.url).await?;
+    let data = encryption::maybe_unseal_after_download(&raw)
+      .map_err(|e| SyncError::InvalidData(format!("Failed to unseal automation scenarios: {e}")))?;
+    let remote: crate::automation::storage::ScenariosData =
+      serde_json::from_slice(&data).map_err(|e| {
+        SyncError::SerializationError(format!("Failed to parse automation scenarios JSON: {e}"))
+      })?;
+
+    crate::automation::storage::ScenarioStore::new()
+      .merge_from_sync(remote)
+      .map_err(|e| SyncError::IoError(format!("Failed to save automation scenarios: {e}")))?;
+
+    if app_handle.is_some() {
+      let _ = events::emit("automation-scenarios-changed", ());
+    }
+
+    log::info!("Automation scenarios downloaded");
     Ok(())
   }
 
@@ -3042,6 +3124,10 @@ impl SyncEngine {
       }
     }
 
+    if let Err(e) = self.sync_automation_scenarios(Some(app_handle)).await {
+      log::warn!("Failed to sync automation scenarios: {}", e);
+    }
+
     log::info!("Missing synced entities check complete");
     Ok(())
   }
@@ -3509,7 +3595,7 @@ pub async fn sync_profile(app_handle: tauri::AppHandle, profile_id: String) -> R
 
 /// Ensure the device has either a cloud login or a self-hosted server URL + token.
 /// Returns a JSON error code string consumable by the frontend translator.
-async fn ensure_sync_configured(app_handle: &tauri::AppHandle) -> Result<(), String> {
+pub async fn ensure_sync_configured(app_handle: &tauri::AppHandle) -> Result<(), String> {
   let cloud_logged_in = crate::cloud_auth::CLOUD_AUTH.is_logged_in().await;
   if cloud_logged_in {
     return Ok(());

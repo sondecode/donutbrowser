@@ -671,7 +671,16 @@ export class SyncService implements OnModuleInit {
     ctx: UserContext,
     pollIntervalMs = 5000,
   ): Observable<SubscribeEventDto> {
-    const basePrefixes = ["profiles/", "proxies/", "groups/", "tombstones/"];
+    const basePrefixes = [
+      "profiles/",
+      "proxies/",
+      "groups/",
+      "vpns/",
+      "extensions/",
+      "extension_groups/",
+      "tombstones/",
+    ];
+    const baseObjects = new Set(["automation_scenarios.json"]);
     const scopes = this.scopesFor(ctx);
 
     // Per-connection state (not shared across subscribers).
@@ -759,7 +768,10 @@ export class SyncService implements OnModuleInit {
                 // Skip the manifest object itself + anything outside the
                 // four data prefixes.
                 if (relativeKey === MANIFEST_KEY) continue;
-                if (!basePrefixes.some((bp) => relativeKey.startsWith(bp))) {
+                if (
+                  !basePrefixes.some((bp) => relativeKey.startsWith(bp)) &&
+                  !baseObjects.has(relativeKey)
+                ) {
                   continue;
                 }
 

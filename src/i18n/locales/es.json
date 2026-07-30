@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "Selecciona al menos un perfil para ejecutar.",
     "automationConcurrencyInvalid": "La concurrencia debe estar entre 1 y {{max}}.",
     "automationJitterRangeInvalid": "El retardo mínimo de inicio no puede superar el máximo.",
+    "automationVariablePoolTooSmall": "El grupo \"{{name}}\" solo tiene {{pool}} valores, pero esta ejecución abarca {{profiles}} perfiles. Añade más valores o desactiva \"unique\".",
     "automationProfileNotChromium": "El perfil \"{{name}}\" no es un perfil Chromium, así que no se puede automatizar.",
     "automationProfileAlreadyRunning": "El perfil \"{{name}}\" ya está en ejecución. Detenlo antes de automatizar.",
     "automationNoLinkFound": "No se encontró ningún enlace adecuado en la página.",
     "automationNoEligibleProfiles": "Ninguno de los perfiles indicados puede automatizarse ahora.",
-    "automationLinkClickFailed": "Se hizo clic en los enlaces encontrados en la página, pero ninguno navegó a ningún sitio."
+    "automationLinkClickFailed": "Se hizo clic en los enlaces encontrados en la página, pero ninguno navegó a ningún sitio.",
+    "automationRunStillRunning": "Detén esta ejecución de automatización antes de eliminar su historial.",
+    "automationScreenshotNotFound": "Ese archivo de captura de pantalla ya no existe."
   },
   "rail": {
     "profiles": "Perfiles",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "Descripción",
       "descriptionPlaceholder": "Qué hace este flujo",
       "variablesLabel": "Variables",
-      "variablesHint": "Valores que se rellenan al ejecutar. Refiérelas en los pasos como {{'{{'}}name{{'}}'}}.",
+      "variablesHint": "Valores que se rellenan al ejecutar. Refiérelas en los pasos como {{'{{'}}name{{'}}'}}. Si le das una lista \"choices\", cada perfil del lote recibe un valor distinto.",
       "stepsLabel": "Pasos",
       "stepsHint": "Se ejecutan de arriba abajo. El navegador se abre antes del primer paso y se cierra tras el último.",
       "invalidJson": "Ese JSON no es válido.",
@@ -2126,6 +2129,7 @@
       "title": "Ejecutar {{name}}",
       "description": "Cada perfil seleccionado se abre, recorre los pasos y luego se cierra.",
       "variablesLabel": "Variables",
+      "variablePoolHint": "{{count}} valores: cada perfil recibe uno distinto.",
       "profilesLabel": "Perfiles",
       "profilesHint": "Solo se pueden automatizar perfiles Chromium que no estén en ejecución.",
       "noEligibleProfiles": "No hay perfiles aptos. La automatización necesita un perfil Chromium que no esté en ejecución.",
@@ -2169,7 +2173,29 @@
         "completed": "Listo",
         "failed": "Falló",
         "cancelled": "Cancelado"
-      }
+      },
+      "screenshot": "Captura {{index}}",
+      "expandRun": "Expandir ejecución",
+      "collapseRun": "Contraer ejecución",
+      "deleteRun": "Eliminar ejecución",
+      "deleteAll": "Eliminar todo el historial",
+      "runDeleted": "Historial de ejecución eliminado",
+      "allDeleted": "Se eliminaron {{count}} historiales de ejecución",
+      "deleteRunTitle": "Eliminar historial de ejecución",
+      "deleteRunDescription": "¿Eliminar el historial de ejecución de \"{{name}}\"? Esta acción no se puede deshacer.",
+      "deleteAllTitle": "Eliminar todo el historial de ejecución",
+      "deleteAllDescription": "¿Eliminar todo el historial completado y cancelado? Las automatizaciones en curso se conservarán."
+    },
+    "scenarioSyncEnabled": "Sincronización del escenario activada",
+    "scenarioSyncDisabled": "Sincronización del escenario desactivada",
+    "table": {
+      "name": "Nombre",
+      "steps": "Pasos",
+      "sync": "Sincronizar",
+      "updated": "Actualizado",
+      "actions": "Acciones",
+      "never": "Nunca",
+      "syncScenario": "Sincronizar {{name}}"
     }
   }
 }

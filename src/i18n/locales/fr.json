@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "Sélectionnez au moins un profil à exécuter.",
     "automationConcurrencyInvalid": "La concurrence doit être comprise entre 1 et {{max}}.",
     "automationJitterRangeInvalid": "Le délai de lancement minimal ne doit pas dépasser le maximal.",
+    "automationVariablePoolTooSmall": "Le pool \"{{name}}\" ne contient que {{pool}} valeurs alors que cette exécution cible {{profiles}} profils. Ajoutez des valeurs ou désactivez \"unique\".",
     "automationProfileNotChromium": "Le profil « {{name}} » n'est pas un profil Chromium, il ne peut pas être automatisé.",
     "automationProfileAlreadyRunning": "Le profil « {{name}} » tourne déjà. Arrêtez-le avant de l'automatiser.",
     "automationNoLinkFound": "Aucun lien approprié n'a été trouvé sur la page.",
     "automationNoEligibleProfiles": "Aucun des profils ciblés ne peut être automatisé pour le moment.",
-    "automationLinkClickFailed": "Les liens trouvés sur la page ont été cliqués, mais aucun n'a mené quelque part."
+    "automationLinkClickFailed": "Les liens trouvés sur la page ont été cliqués, mais aucun n'a mené quelque part.",
+    "automationRunStillRunning": "Arrêtez cette exécution avant de supprimer son historique.",
+    "automationScreenshotNotFound": "Ce fichier de capture d’écran n’existe plus."
   },
   "rail": {
     "profiles": "Profils",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "Description",
       "descriptionPlaceholder": "Ce que fait ce parcours",
       "variablesLabel": "Variables",
-      "variablesHint": "Valeurs renseignées à l'exécution. Référencez-les dans les étapes avec {{'{{'}}name{{'}}'}}.",
+      "variablesHint": "Valeurs renseignées à l'exécution. Référencez-les dans les étapes avec {{'{{'}}name{{'}}'}}. Avec une liste \"choices\", chaque profil du lot reçoit une valeur différente.",
       "stepsLabel": "Étapes",
       "stepsHint": "Exécutées de haut en bas. Le navigateur démarre avant la première étape et se ferme après la dernière.",
       "invalidJson": "Ce JSON n'est pas valide.",
@@ -2126,6 +2129,7 @@
       "title": "Exécuter {{name}}",
       "description": "Chaque profil sélectionné est lancé, guidé à travers les étapes, puis fermé.",
       "variablesLabel": "Variables",
+      "variablePoolHint": "{{count}} valeurs — chaque profil en reçoit une différente.",
       "profilesLabel": "Profils",
       "profilesHint": "Seuls les profils Chromium qui ne tournent pas déjà peuvent être automatisés.",
       "noEligibleProfiles": "Aucun profil éligible. L'automatisation nécessite un profil Chromium à l'arrêt.",
@@ -2169,7 +2173,29 @@
         "completed": "Terminé",
         "failed": "Échec",
         "cancelled": "Annulé"
-      }
+      },
+      "screenshot": "Capture {{index}}",
+      "expandRun": "Développer l’exécution",
+      "collapseRun": "Réduire l’exécution",
+      "deleteRun": "Supprimer l’exécution",
+      "deleteAll": "Supprimer tout l’historique",
+      "runDeleted": "Historique d’exécution supprimé",
+      "allDeleted": "{{count}} historiques d’exécution supprimés",
+      "deleteRunTitle": "Supprimer l’historique d’exécution",
+      "deleteRunDescription": "Supprimer l’historique d’exécution de « {{name}} » ? Cette action est irréversible.",
+      "deleteAllTitle": "Supprimer tout l’historique d’exécution",
+      "deleteAllDescription": "Supprimer tout l’historique terminé et annulé ? Les automatisations en cours seront conservées."
+    },
+    "scenarioSyncEnabled": "Synchronisation du scénario activée",
+    "scenarioSyncDisabled": "Synchronisation du scénario désactivée",
+    "table": {
+      "name": "Nom",
+      "steps": "Étapes",
+      "sync": "Sync",
+      "updated": "Mis à jour",
+      "actions": "Actions",
+      "never": "Jamais",
+      "syncScenario": "Synchroniser {{name}}"
     }
   }
 }

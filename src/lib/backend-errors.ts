@@ -46,10 +46,13 @@ export type BackendErrorCode =
   | "AUTOMATION_STEP_RANGE_INVALID"
   | "AUTOMATION_STEP_DWELL_TOO_LONG"
   | "AUTOMATION_RUN_NOT_FOUND"
+  | "AUTOMATION_RUN_STILL_RUNNING"
+  | "AUTOMATION_SCREENSHOT_NOT_FOUND"
   | "AUTOMATION_NO_PROFILES_SELECTED"
   | "AUTOMATION_NO_ELIGIBLE_PROFILES"
   | "AUTOMATION_CONCURRENCY_INVALID"
   | "AUTOMATION_JITTER_RANGE_INVALID"
+  | "AUTOMATION_VARIABLE_POOL_TOO_SMALL"
   | "AUTOMATION_PROFILE_NOT_CHROMIUM"
   | "AUTOMATION_PROFILE_ALREADY_RUNNING"
   | "AUTOMATION_NO_LINK_FOUND"
@@ -200,6 +203,10 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       });
     case "AUTOMATION_RUN_NOT_FOUND":
       return t("backendErrors.automationRunNotFound");
+    case "AUTOMATION_RUN_STILL_RUNNING":
+      return t("backendErrors.automationRunStillRunning");
+    case "AUTOMATION_SCREENSHOT_NOT_FOUND":
+      return t("backendErrors.automationScreenshotNotFound");
     case "AUTOMATION_NO_PROFILES_SELECTED":
       return t("backendErrors.automationNoProfilesSelected");
     case "AUTOMATION_NO_ELIGIBLE_PROFILES":
@@ -210,6 +217,12 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       });
     case "AUTOMATION_JITTER_RANGE_INVALID":
       return t("backendErrors.automationJitterRangeInvalid");
+    case "AUTOMATION_VARIABLE_POOL_TOO_SMALL":
+      return t("backendErrors.automationVariablePoolTooSmall", {
+        name: parsed.params?.name ?? "",
+        pool: parsed.params?.pool ?? "",
+        profiles: parsed.params?.profiles ?? "",
+      });
     case "AUTOMATION_PROFILE_NOT_CHROMIUM":
       return t("backendErrors.automationProfileNotChromium", {
         name: parsed.params?.name ?? "",

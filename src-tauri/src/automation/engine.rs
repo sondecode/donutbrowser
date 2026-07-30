@@ -107,9 +107,9 @@ pub struct RunRequest {
   pub group_id: Option<String>,
   #[serde(default = "default_concurrency")]
   pub concurrency: u32,
-  #[serde(default)]
+  #[serde(default = "default_jitter_min")]
   pub jitter_min_secs: u64,
-  #[serde(default)]
+  #[serde(default = "default_jitter_max")]
   pub jitter_max_secs: u64,
   #[serde(default)]
   pub variables: HashMap<String, String>,
@@ -119,6 +119,16 @@ pub struct RunRequest {
 
 fn default_concurrency() -> u32 {
   1
+}
+
+/// Launch stagger. Zero would put every profile in a batch on the same page
+/// within the same second — the batch's loudest tell — so the default is a real
+/// spread that a caller has to opt out of on purpose.
+fn default_jitter_min() -> u64 {
+  30
+}
+fn default_jitter_max() -> u64 {
+  180
 }
 
 lazy_static::lazy_static! {
@@ -179,6 +189,40 @@ pub fn list_runs() -> Vec<AutomationRun> {
   let mut all: Vec<AutomationRun> = runs.values().cloned().collect();
   all.sort_by_key(|run| std::cmp::Reverse(run.created_at));
   all
+}
+
+pub fn delete_run(run_id: &str) -> Result<(), String> {
+  let mut runs = match RUNS.lock() {
+    Ok(guard) => guard,
+    Err(poisoned) => poisoned.into_inner(),
+  };
+
+  let Some(run) = runs.get(run_id) else {
+    return Err(
+      serde_json::json!({ "code": "AUTOMATION_RUN_NOT_FOUND", "params": { "id": run_id } })
+        .to_string(),
+    );
+  };
+
+  if run.status == RunStatus::Running {
+    return Err(
+      serde_json::json!({ "code": "AUTOMATION_RUN_STILL_RUNNING", "params": { "id": run_id } })
+        .to_string(),
+    );
+  }
+
+  runs.remove(run_id);
+  Ok(())
+}
+
+pub fn delete_finished_runs() -> usize {
+  let mut runs = match RUNS.lock() {
+    Ok(guard) => guard,
+    Err(poisoned) => poisoned.into_inner(),
+  };
+  let before = runs.len();
+  runs.retain(|_, run| run.status == RunStatus::Running);
+  before.saturating_sub(runs.len())
 }
 
 /// Ask a run to stop. Profiles mid-dwell wake within a second; each one is
@@ -301,6 +345,20 @@ pub async fn start_run(
     return Err(serde_json::json!({ "code": "AUTOMATION_NO_ELIGIBLE_PROFILES" }).to_string());
   }
 
+  if let Some((name, pool)) = scenario.undersized_unique_pool(&request.variables, selected.len()) {
+    return Err(
+      serde_json::json!({
+        "code": "AUTOMATION_VARIABLE_POOL_TOO_SMALL",
+        "params": {
+          "name": name,
+          "pool": pool.to_string(),
+          "profiles": selected.len().to_string()
+        }
+      })
+      .to_string(),
+    );
+  }
+
   let run_id = uuid::Uuid::new_v4().to_string();
   let total_steps = scenario.steps.len();
   let run = AutomationRun {
@@ -339,7 +397,9 @@ pub async fn start_run(
   let cancel = cancel_flag(&run_id);
   let _ = crate::events::emit(RUN_UPDATED_EVENT, &run);
 
-  let variables = scenario.resolve_variables(&request.variables);
+  // Shuffled once for the whole run, then dealt per profile below, so no two
+  // profiles in a batch open the same pooled URL.
+  let decks = scenario.shuffle_decks(&request.variables);
   let semaphore = Arc::new(tokio::sync::Semaphore::new(request.concurrency as usize));
   let scenario = Arc::new(scenario);
 
@@ -348,8 +408,8 @@ pub async fn start_run(
     let run_id = run_id.clone();
     let cancel = cancel.clone();
     let semaphore = semaphore.clone();
+    let variables = scenario.resolve_variables_for(&request.variables, index, &decks);
     let scenario = scenario.clone();
-    let variables = variables.clone();
     let headless = request.headless;
     let jitter = (request.jitter_min_secs, request.jitter_max_secs);
 
@@ -526,9 +586,16 @@ async fn execute_step(
       url,
       wait_for_load,
       timeout_secs,
+      referrer,
     } => {
       let resolved = substitute(url, variables);
-      let params = serde_json::json!({ "url": resolved });
+      let mut params = serde_json::json!({ "url": resolved });
+      if let Some(referrer) = referrer {
+        let resolved_referrer = substitute(referrer, variables);
+        if !resolved_referrer.trim().is_empty() {
+          params["referrer"] = serde_json::json!(resolved_referrer);
+        }
+      }
       if *wait_for_load {
         cdp::send_and_wait_for_load(ws_url, "Page.navigate", params, *timeout_secs).await?;
         wait_for_ready_state(ws_url, *timeout_secs, cancel).await?;
@@ -546,14 +613,19 @@ async fn execute_step(
     Step::ClickRandomLink {
       same_domain_only,
       exclude_patterns,
+      include_patterns,
       wait_for_load,
       timeout_secs,
     } => {
+      let filter = LinkFilter {
+        same_domain_only: *same_domain_only,
+        exclude_patterns,
+        include_patterns,
+      };
       click_random_link(
         ws_url,
         cursor,
-        *same_domain_only,
-        exclude_patterns,
+        &filter,
         *wait_for_load,
         *timeout_secs,
         cancel,
@@ -830,6 +902,7 @@ const PICK_LINK_JS: &str = r#"
 (() => {
   const sameDomainOnly = __SAME_DOMAIN__;
   const excludes = __EXCLUDES__;
+  const includes = __INCLUDES__;
   const tried = __TRIED__;
   const here = location.hostname;
 
@@ -843,6 +916,7 @@ const PICK_LINK_JS: &str = r#"
     if (sameDomainOnly && host !== here) return false;
     const lower = href.toLowerCase();
     if (excludes.some((p) => lower.includes(p))) return false;
+    if (includes.length > 0 && !includes.some((p) => lower.includes(p))) return false;
     const rect = a.getBoundingClientRect();
     if (rect.width < 4 || rect.height < 4) return false;
     const style = getComputedStyle(a);
@@ -1005,16 +1079,25 @@ async fn wheel_link_into_view(
   measure_tagged_link(ws_url).await
 }
 
+/// Which hrefs on the page a `click_random_link` step will consider.
+struct LinkFilter<'a> {
+  same_domain_only: bool,
+  exclude_patterns: &'a [String],
+  include_patterns: &'a [String],
+}
+
 async fn click_random_link(
   ws_url: &str,
   cursor: &mut PageCursor,
-  same_domain_only: bool,
-  exclude_patterns: &[String],
+  filter: &LinkFilter<'_>,
   wait_for_load: bool,
   timeout_secs: u64,
   cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
-  let excludes: Vec<String> = exclude_patterns.iter().map(|p| p.to_lowercase()).collect();
+  let lowercased =
+    |patterns: &[String]| -> Vec<String> { patterns.iter().map(|p| p.to_lowercase()).collect() };
+  let excludes = lowercased(filter.exclude_patterns);
+  let includes = lowercased(filter.include_patterns);
   let mut tried: Vec<String> = Vec::new();
 
   for attempt in 1..=MAX_LINK_ATTEMPTS {
@@ -1034,11 +1117,19 @@ async fn click_random_link(
     let js = PICK_LINK_JS
       .replace(
         "__SAME_DOMAIN__",
-        if same_domain_only { "true" } else { "false" },
+        if filter.same_domain_only {
+          "true"
+        } else {
+          "false"
+        },
       )
       .replace(
         "__EXCLUDES__",
         &serde_json::to_string(&excludes).unwrap_or_else(|_| "[]".to_string()),
+      )
+      .replace(
+        "__INCLUDES__",
+        &serde_json::to_string(&includes).unwrap_or_else(|_| "[]".to_string()),
       )
       .replace(
         "__TRIED__",
@@ -1280,8 +1371,14 @@ mod tests {
     let filled = PICK_LINK_JS
       .replace("__SAME_DOMAIN__", "true")
       .replace("__EXCLUDES__", "[]")
+      .replace("__INCLUDES__", "[]")
       .replace("__TRIED__", "[]");
-    for placeholder in ["__SAME_DOMAIN__", "__EXCLUDES__", "__TRIED__"] {
+    for placeholder in [
+      "__SAME_DOMAIN__",
+      "__EXCLUDES__",
+      "__INCLUDES__",
+      "__TRIED__",
+    ] {
       assert!(
         !filled.contains(placeholder),
         "{placeholder} was left unsubstituted in the link picker JS"
@@ -1299,6 +1396,14 @@ mod tests {
         "link scripts must not jump the scroll position"
       );
     }
+  }
+
+  #[test]
+  fn the_link_picker_applies_include_patterns_only_when_given_some() {
+    assert!(
+      PICK_LINK_JS.contains("includes.length > 0"),
+      "an empty include list must not reject every candidate"
+    );
   }
 
   #[test]
@@ -1381,6 +1486,36 @@ mod tests {
         "concurrency {concurrency} should be rejected"
       );
     }
+  }
+
+  #[test]
+  fn a_request_that_omits_jitter_still_staggers_launches() {
+    // A zero default would land every profile on the same page in the same
+    // second, which is the one thing the stagger exists to prevent.
+    let request = run_request_json(serde_json::json!({
+      "scenario_id": "s",
+      "group_id": "g"
+    }))
+    .unwrap();
+    assert!(
+      request.jitter_min_secs > 0,
+      "jitter must default to a spread"
+    );
+    assert!(request.jitter_max_secs > request.jitter_min_secs);
+    validate_request(&request).expect("the defaults must be a valid range");
+  }
+
+  #[test]
+  fn an_explicit_zero_jitter_is_still_honoured() {
+    let request = run_request_json(serde_json::json!({
+      "scenario_id": "s",
+      "group_id": "g",
+      "jitter_min_secs": 0,
+      "jitter_max_secs": 0
+    }))
+    .unwrap();
+    assert_eq!(request.jitter_min_secs, 0);
+    assert_eq!(request.jitter_max_secs, 0);
   }
 
   #[test]

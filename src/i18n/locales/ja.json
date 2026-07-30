@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "実行するプロファイルを 1 つ以上選択してください。",
     "automationConcurrencyInvalid": "同時実行数は 1 から {{max}} の間で指定してください。",
     "automationJitterRangeInvalid": "起動遅延の最小値は最大値を超えられません。",
+    "automationVariablePoolTooSmall": "\"{{name}}\" のプールには {{pool}} 件しかありませんが、この実行の対象は {{profiles}} 個のプロファイルです。値を追加するか \"unique\" を無効にしてください。",
     "automationProfileNotChromium": "プロファイル「{{name}}」は Chromium プロファイルではないため自動化できません。",
     "automationProfileAlreadyRunning": "プロファイル「{{name}}」はすでに起動しています。自動化する前に停止してください。",
     "automationNoLinkFound": "ページ内に適切なリンクが見つかりませんでした。",
     "automationNoEligibleProfiles": "対象のプロファイルはいずれも現在自動化できません。",
-    "automationLinkClickFailed": "ページ上で見つかったリンクをクリックしましたが、どれも遷移しませんでした。"
+    "automationLinkClickFailed": "ページ上で見つかったリンクをクリックしましたが、どれも遷移しませんでした。",
+    "automationRunStillRunning": "履歴を削除する前に、この自動化の実行を停止してください。",
+    "automationScreenshotNotFound": "そのスクリーンショットファイルは存在しません。"
   },
   "rail": {
     "profiles": "プロファイル",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "説明",
       "descriptionPlaceholder": "この手順の内容",
       "variablesLabel": "変数",
-      "variablesHint": "実行時に入力される値です。ステップ内では {{'{{'}}name{{'}}'}} として参照します。",
+      "variablesHint": "実行時に入力される値です。ステップ内では {{'{{'}}name{{'}}'}} として参照します。\"choices\" リストを与えると、バッチ内の各プロファイルが別の値を受け取ります。",
       "stepsLabel": "ステップ",
       "stepsHint": "上から順に実行されます。ブラウザは最初のステップ前に起動し、最後のステップ後に終了します。",
       "invalidJson": "有効な JSON ではありません。",
@@ -2126,6 +2129,7 @@
       "title": "{{name}} を実行",
       "description": "選択した各プロファイルを起動し、ステップを実行してから終了します。",
       "variablesLabel": "変数",
+      "variablePoolHint": "{{count}} 件の値 — プロファイルごとに別の値が使われます。",
       "profilesLabel": "プロファイル",
       "profilesHint": "自動化できるのは、まだ起動していない Chromium プロファイルのみです。",
       "noEligibleProfiles": "対象のプロファイルがありません。自動化には停止中の Chromium プロファイルが必要です。",
@@ -2169,7 +2173,29 @@
         "completed": "完了",
         "failed": "失敗",
         "cancelled": "キャンセル"
-      }
+      },
+      "screenshot": "スクリーンショット {{index}}",
+      "expandRun": "実行を展開",
+      "collapseRun": "実行を折りたたむ",
+      "deleteRun": "実行を削除",
+      "deleteAll": "履歴をすべて削除",
+      "runDeleted": "実行履歴を削除しました",
+      "allDeleted": "{{count}} 件の実行履歴を削除しました",
+      "deleteRunTitle": "実行履歴を削除",
+      "deleteRunDescription": "「{{name}}」の実行履歴を削除しますか？この操作は元に戻せません。",
+      "deleteAllTitle": "すべての実行履歴を削除",
+      "deleteAllDescription": "完了済みおよびキャンセル済みの実行履歴をすべて削除しますか？実行中の自動化は残ります。"
+    },
+    "scenarioSyncEnabled": "シナリオの同期を有効にしました",
+    "scenarioSyncDisabled": "シナリオの同期を無効にしました",
+    "table": {
+      "name": "名前",
+      "steps": "ステップ",
+      "sync": "同期",
+      "updated": "更新日時",
+      "actions": "操作",
+      "never": "未更新",
+      "syncScenario": "{{name}} を同期"
     }
   }
 }

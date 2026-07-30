@@ -557,6 +557,7 @@ export type AutomationStep =
       url: string;
       wait_for_load: boolean;
       timeout_secs: number;
+      referrer?: string | null;
     }
   | { type: "wait_for_load"; timeout_secs: number }
   | {
@@ -569,6 +570,7 @@ export type AutomationStep =
       type: "click_random_link";
       same_domain_only: boolean;
       exclude_patterns: string[];
+      include_patterns: string[];
       wait_for_load: boolean;
       timeout_secs: number;
     }
@@ -582,6 +584,10 @@ export interface AutomationVariableDef {
   name: string;
   description?: string;
   default?: string;
+  /** Values dealt out one per profile across a batch, instead of one shared value. */
+  choices?: string[];
+  /** Refuse to start a batch larger than `choices`. */
+  unique?: boolean;
 }
 
 export interface AutomationScenario {
@@ -592,6 +598,7 @@ export interface AutomationScenario {
   steps: AutomationStep[];
   built_in?: boolean;
   updated_at?: number;
+  sync_enabled?: boolean;
 }
 
 export type AutomationRunStatus = "running" | "completed" | "cancelled";

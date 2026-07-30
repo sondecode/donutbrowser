@@ -2393,10 +2393,14 @@ pub fn run() {
       automation::create_automation_scenario,
       automation::update_automation_scenario,
       automation::delete_automation_scenario,
+      automation::set_automation_scenario_sync_enabled,
       automation::get_automation_step_schema,
       automation::start_automation_run,
       automation::list_automation_runs,
       automation::cancel_automation_run,
+      automation::delete_automation_run,
+      automation::delete_all_automation_runs,
+      automation::open_automation_screenshot,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

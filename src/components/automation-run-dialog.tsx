@@ -103,15 +103,16 @@ export function AutomationRunDialog({
     setSelected(new Set());
     setGroupId(null);
     setConcurrency("1");
-    setJitterMin("0");
-    setJitterMax("0");
+    setJitterMin("30");
+    setJitterMax("180");
     setHeadless(false);
     setVariables(
       Object.fromEntries(
-        (scenario?.variables ?? []).map((variable) => [
-          variable.name,
-          variable.default ?? "",
-        ]),
+        (scenario?.variables ?? [])
+          // Pooled variables are dealt one value per profile by the backend;
+          // sending anything for them here would pin the whole batch.
+          .filter((variable) => (variable.choices ?? []).length === 0)
+          .map((variable) => [variable.name, variable.default ?? ""]),
       ),
     );
   }, [isOpen, scenario]);
@@ -191,28 +192,42 @@ export function AutomationRunDialog({
           {(scenario?.variables ?? []).length > 0 && (
             <div className="flex flex-col gap-3">
               <Label>{t("automation.run.variablesLabel")}</Label>
-              {(scenario?.variables ?? []).map((variable) => (
-                <div key={variable.name} className="flex flex-col gap-1">
-                  <Label
-                    htmlFor={`automation-var-${variable.name}`}
-                    className="font-mono text-xs text-muted-foreground"
-                  >
-                    {variable.name}
-                  </Label>
-                  <Input
-                    id={`automation-var-${variable.name}`}
-                    value={variables[variable.name] ?? ""}
-                    onChange={(e) => {
-                      setVariables((previous) => ({
-                        ...previous,
-                        [variable.name]: e.target.value,
-                      }));
-                    }}
-                    placeholder={variable.description ?? ""}
-                    disabled={isStarting}
-                  />
-                </div>
-              ))}
+              {(scenario?.variables ?? []).map((variable) => {
+                const pool = variable.choices ?? [];
+                return (
+                  <div key={variable.name} className="flex flex-col gap-1">
+                    <Label
+                      htmlFor={`automation-var-${variable.name}`}
+                      className="font-mono text-xs text-muted-foreground"
+                    >
+                      {variable.name}
+                    </Label>
+                    {pool.length > 0 ? (
+                      // Dealt per profile by the backend. Offering a field here
+                      // would invite pinning one value across the whole batch,
+                      // which is the thing the pool exists to avoid.
+                      <p className="text-xs text-muted-foreground">
+                        {t("automation.run.variablePoolHint", {
+                          count: pool.length,
+                        })}
+                      </p>
+                    ) : (
+                      <Input
+                        id={`automation-var-${variable.name}`}
+                        value={variables[variable.name] ?? ""}
+                        onChange={(e) => {
+                          setVariables((previous) => ({
+                            ...previous,
+                            [variable.name]: e.target.value,
+                          }));
+                        }}
+                        placeholder={variable.description ?? ""}
+                        disabled={isStarting}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "Çalıştırmak için en az bir profil seçin.",
     "automationConcurrencyInvalid": "Eşzamanlılık 1 ile {{max}} arasında olmalı.",
     "automationJitterRangeInvalid": "En küçük başlatma gecikmesi en büyüğünü aşmamalı.",
+    "automationVariablePoolTooSmall": "\"{{name}}\" havuzunda yalnızca {{pool}} değer var ama bu çalıştırma {{profiles}} profili kapsıyor. Değer ekleyin ya da \"unique\" seçeneğini kapatın.",
     "automationProfileNotChromium": "\"{{name}}\" profili bir Chromium profili değil, bu yüzden otomatikleştirilemez.",
     "automationProfileAlreadyRunning": "\"{{name}}\" profili çalışıyor. Otomatikleştirmeden önce durdurun.",
     "automationNoLinkFound": "Sayfada uygun bir bağlantı bulunamadı.",
     "automationNoEligibleProfiles": "Hedeflenen profillerin hiçbiri şu anda otomatikleştirilemez.",
-    "automationLinkClickFailed": "Sayfada bulunan bağlantılara tıklandı ancak hiçbiri bir yere gitmedi."
+    "automationLinkClickFailed": "Sayfada bulunan bağlantılara tıklandı ancak hiçbiri bir yere gitmedi.",
+    "automationRunStillRunning": "Geçmişini silmeden önce bu otomasyon çalıştırmasını durdurun.",
+    "automationScreenshotNotFound": "Bu ekran görüntüsü dosyası artık yok."
   },
   "rail": {
     "profiles": "Profiller",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "Açıklama",
       "descriptionPlaceholder": "Bu akışın ne yaptığı",
       "variablesLabel": "Değişkenler",
-      "variablesHint": "Çalıştırma sırasında doldurulan değerler. Adımlarda {{'{{'}}name{{'}}'}} olarak kullanın.",
+      "variablesHint": "Çalıştırma sırasında doldurulan değerler. Adımlarda {{'{{'}}name{{'}}'}} olarak kullanın. Bir \"choices\" listesi verirseniz gruptaki her profil farklı bir değer alır.",
       "stepsLabel": "Adımlar",
       "stepsHint": "Yukarıdan aşağıya çalışır. Tarayıcı ilk adımdan önce açılır, son adımdan sonra kapanır.",
       "invalidJson": "Bu geçerli bir JSON değil.",
@@ -2126,6 +2129,7 @@
       "title": "{{name}} çalıştır",
       "description": "Seçilen her profil açılır, adımlardan geçirilir ve sonra kapatılır.",
       "variablesLabel": "Değişkenler",
+      "variablePoolHint": "{{count}} değer — her profil farklı bir değer alır.",
       "profilesLabel": "Profiller",
       "profilesHint": "Yalnızca çalışmayan Chromium profilleri otomatikleştirilebilir.",
       "noEligibleProfiles": "Uygun profil yok. Otomasyon için çalışmayan bir Chromium profili gerekir.",
@@ -2169,7 +2173,29 @@
         "completed": "Bitti",
         "failed": "Başarısız",
         "cancelled": "İptal edildi"
-      }
+      },
+      "screenshot": "Ekran görüntüsü {{index}}",
+      "expandRun": "Çalıştırmayı genişlet",
+      "collapseRun": "Çalıştırmayı daralt",
+      "deleteRun": "Çalıştırmayı sil",
+      "deleteAll": "Tüm geçmişi sil",
+      "runDeleted": "Çalıştırma geçmişi silindi",
+      "allDeleted": "{{count}} çalıştırma geçmişi silindi",
+      "deleteRunTitle": "Çalıştırma geçmişini sil",
+      "deleteRunDescription": "\"{{name}}\" çalıştırma geçmişi silinsin mi? Bu işlem geri alınamaz.",
+      "deleteAllTitle": "Tüm çalıştırma geçmişini sil",
+      "deleteAllDescription": "Tamamlanan ve iptal edilen tüm çalıştırma geçmişi silinsin mi? Devam eden otomasyonlar korunur."
+    },
+    "scenarioSyncEnabled": "Senaryo eşitleme açıldı",
+    "scenarioSyncDisabled": "Senaryo eşitleme kapatıldı",
+    "table": {
+      "name": "Ad",
+      "steps": "Adımlar",
+      "sync": "Eşitle",
+      "updated": "Güncellendi",
+      "actions": "İşlemler",
+      "never": "Hiç",
+      "syncScenario": "{{name}} senaryosunu eşitle"
     }
   }
 }

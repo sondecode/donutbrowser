@@ -1855,11 +1855,14 @@
     "automationNoProfilesSelected": "Select at least one profile to run.",
     "automationConcurrencyInvalid": "Concurrency must be between 1 and {{max}}.",
     "automationJitterRangeInvalid": "The minimum launch delay must not exceed the maximum.",
+    "automationVariablePoolTooSmall": "The \"{{name}}\" pool has only {{pool}} values but this run targets {{profiles}} profiles. Add more values or turn off \"unique\".",
     "automationProfileNotChromium": "Profile \"{{name}}\" isn't a Chromium profile, so it can't be automated.",
     "automationProfileAlreadyRunning": "Profile \"{{name}}\" is already running. Stop it before automating.",
     "automationNoLinkFound": "No suitable link was found on the page.",
     "automationNoEligibleProfiles": "None of the targeted profiles can be automated right now.",
-    "automationLinkClickFailed": "Clicked the links found on the page but none of them navigated anywhere."
+    "automationLinkClickFailed": "Clicked the links found on the page but none of them navigated anywhere.",
+    "automationRunStillRunning": "Stop this automation run before deleting its history.",
+    "automationScreenshotNotFound": "That screenshot file no longer exists."
   },
   "rail": {
     "profiles": "Profiles",
@@ -2115,7 +2118,7 @@
       "descriptionLabel": "Description",
       "descriptionPlaceholder": "What this workflow does",
       "variablesLabel": "Variables",
-      "variablesHint": "Values filled in at run time. Reference them in steps as {{'{{'}}name{{'}}'}}.",
+      "variablesHint": "Values filled in at run time. Reference them in steps as {{'{{'}}name{{'}}'}}. Give one a \"choices\" list and each profile in a batch gets a different value.",
       "stepsLabel": "Steps",
       "stepsHint": "Executed top to bottom. The browser launches before the first step and closes after the last.",
       "invalidJson": "That isn't valid JSON.",
@@ -2126,6 +2129,7 @@
       "title": "Run {{name}}",
       "description": "Each selected profile is launched, driven through the steps, then closed.",
       "variablesLabel": "Variables",
+      "variablePoolHint": "{{count}} values — each profile gets a different one.",
       "profilesLabel": "Profiles",
       "profilesHint": "Only Chromium profiles that aren't already running can be automated.",
       "noEligibleProfiles": "No eligible profiles. Automation needs a Chromium profile that isn't running.",
@@ -2169,7 +2173,29 @@
         "completed": "Done",
         "failed": "Failed",
         "cancelled": "Cancelled"
-      }
+      },
+      "screenshot": "Screenshot {{index}}",
+      "expandRun": "Expand run",
+      "collapseRun": "Collapse run",
+      "deleteRun": "Delete run",
+      "deleteAll": "Delete all history",
+      "runDeleted": "Run history deleted",
+      "allDeleted": "Deleted {{count}} run histories",
+      "deleteRunTitle": "Delete run history",
+      "deleteRunDescription": "Delete the run history for \"{{name}}\"? This cannot be undone.",
+      "deleteAllTitle": "Delete all run history",
+      "deleteAllDescription": "Delete all completed and cancelled run history? Running automations will stay."
+    },
+    "scenarioSyncEnabled": "Scenario sync enabled",
+    "scenarioSyncDisabled": "Scenario sync disabled",
+    "table": {
+      "name": "Name",
+      "steps": "Steps",
+      "sync": "Sync",
+      "updated": "Updated",
+      "actions": "Actions",
+      "never": "Never",
+      "syncScenario": "Sync {{name}}"
     }
   }
 }

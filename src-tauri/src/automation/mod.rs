@@ -14,6 +14,7 @@ pub mod storage;
 use engine::{AutomationRun, RunRequest};
 use scenario::Scenario;
 use storage::ScenarioStore;
+use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
 pub async fn list_automation_scenarios() -> Result<Vec<Scenario>, String> {
@@ -43,6 +44,18 @@ pub async fn delete_automation_scenario(scenario_id: String) -> Result<(), Strin
   ScenarioStore::new().delete(&scenario_id)
 }
 
+#[tauri::command]
+pub async fn set_automation_scenario_sync_enabled(
+  app_handle: tauri::AppHandle,
+  scenario_id: String,
+  enabled: bool,
+) -> Result<Scenario, String> {
+  if enabled {
+    crate::sync::ensure_sync_configured(&app_handle).await?;
+  }
+  ScenarioStore::new().set_sync_enabled(&scenario_id, enabled)
+}
+
 /// Machine-readable step reference, so the UI and MCP clients describe the same
 /// template format without either hardcoding a second copy of it.
 #[tauri::command]
@@ -68,4 +81,36 @@ pub async fn list_automation_runs() -> Result<Vec<AutomationRun>, String> {
 #[tauri::command]
 pub async fn cancel_automation_run(run_id: String) -> Result<(), String> {
   engine::cancel_run(&run_id)
+}
+
+#[tauri::command]
+pub async fn delete_automation_run(run_id: String) -> Result<(), String> {
+  engine::delete_run(&run_id)
+}
+
+#[tauri::command]
+pub async fn delete_all_automation_runs() -> Result<usize, String> {
+  Ok(engine::delete_finished_runs())
+}
+
+#[tauri::command]
+pub async fn open_automation_screenshot(
+  app_handle: tauri::AppHandle,
+  path: String,
+) -> Result<(), String> {
+  let screenshot_path = std::path::PathBuf::from(&path);
+  if !screenshot_path.exists() || !screenshot_path.is_file() {
+    return Err(serde_json::json!({ "code": "AUTOMATION_SCREENSHOT_NOT_FOUND" }).to_string());
+  }
+
+  app_handle
+    .opener()
+    .open_path(path, None::<&str>)
+    .map_err(|e| {
+      serde_json::json!({
+        "code": "INTERNAL_ERROR",
+        "params": { "detail": e.to_string() }
+      })
+      .to_string()
+    })
 }

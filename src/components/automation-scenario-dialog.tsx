@@ -38,7 +38,12 @@ const EMPTY_STEPS = `[
 ]`;
 
 const EMPTY_VARIABLES = `[
-  { "name": "start_url", "default": "https://www.wikipedia.org" }
+  { "name": "start_url", "default": "https://www.wikipedia.org" },
+  {
+    "name": "target_url",
+    "choices": ["https://example.com/a", "https://example.com/b"],
+    "unique": false
+  }
 ]`;
 
 /**
