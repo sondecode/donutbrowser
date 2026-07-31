@@ -92,6 +92,41 @@ fn executable_from_path(names: &[&str]) -> Option<PathBuf> {
   None
 }
 
+/// Browser families in resolution order: Google Chrome first, Chromium only as
+/// a fallback. An unbranded Chromium build is itself a fingerprint — its
+/// `Sec-CH-UA` carries no `Google Chrome` brand, the proprietary codecs
+/// (H.264/AAC) are absent and there is no Widevine CDM — so a machine that has
+/// both should launch Chrome. Each family is probed completely (PATH, then app
+/// bundles) before falling through to the next, otherwise a `chromium` on PATH
+/// would win over an installed `Google Chrome.app`.
+#[cfg(target_os = "macos")]
+const MACOS_BROWSER_FAMILIES: [(&[&str], &[&str]); 2] = [
+  (
+    &["google-chrome", "google-chrome-stable", "chrome"],
+    &["Google Chrome", "Google Chrome for Testing"],
+  ),
+  (&["chromium", "chromium-browser"], &["Chromium"]),
+];
+
+/// First existing `<root>/<app>.app/Contents/MacOS/<app>` executable, walking
+/// `app_names` in order so the caller's preference decides, not the roots'.
+#[cfg(target_os = "macos")]
+fn bundle_executable_in(roots: &[PathBuf], app_names: &[&str]) -> Option<PathBuf> {
+  for name in app_names {
+    for root in roots {
+      let candidate = root
+        .join(format!("{name}.app"))
+        .join("Contents")
+        .join("MacOS")
+        .join(name);
+      if let Some(path) = resolve_executable_candidate(candidate) {
+        return Some(path);
+      }
+    }
+  }
+  None
+}
+
 pub fn get_system_chromium_executable_path(
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
   if let Some(path) = executable_from_env() {
@@ -100,39 +135,16 @@ pub fn get_system_chromium_executable_path(
 
   #[cfg(target_os = "macos")]
   {
-    if let Some(path) = executable_from_path(&["chromium", "chromium-browser", "google-chrome"]) {
-      return Ok(path);
+    let mut app_roots = vec![PathBuf::from("/Applications")];
+    if let Some(home) = dirs::home_dir() {
+      app_roots.push(home.join("Applications"));
     }
 
-    let home_app_candidates = dirs::home_dir().map(|home| {
-      vec![
-        home
-          .join("Applications")
-          .join("Chromium.app")
-          .join("Contents")
-          .join("MacOS")
-          .join("Chromium"),
-        home
-          .join("Applications")
-          .join("Google Chrome.app")
-          .join("Contents")
-          .join("MacOS")
-          .join("Google Chrome"),
-      ]
-    });
-    let mut candidates = vec![
-      PathBuf::from("/Applications/Chromium.app/Contents/MacOS/Chromium"),
-      PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-      PathBuf::from(
-        "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-      ),
-    ];
-    if let Some(mut home_candidates) = home_app_candidates {
-      candidates.append(&mut home_candidates);
-    }
-
-    for candidate in candidates {
-      if let Some(path) = resolve_executable_candidate(candidate) {
+    for (path_names, app_names) in MACOS_BROWSER_FAMILIES {
+      if let Some(path) = executable_from_path(path_names) {
+        return Ok(path);
+      }
+      if let Some(path) = bundle_executable_in(&app_roots, app_names) {
         return Ok(path);
       }
     }
@@ -141,11 +153,11 @@ pub fn get_system_chromium_executable_path(
   #[cfg(target_os = "linux")]
   {
     if let Some(path) = executable_from_path(&[
-      "chromium",
-      "chromium-browser",
       "google-chrome",
       "google-chrome-stable",
       "chrome",
+      "chromium",
+      "chromium-browser",
     ]) {
       return Ok(path);
     }
@@ -155,18 +167,18 @@ pub fn get_system_chromium_executable_path(
   {
     if let Some(path) = executable_from_path(&[
       "chrome.exe",
-      "chromium.exe",
       "google-chrome.exe",
       "google-chrome-stable.exe",
+      "chromium.exe",
     ]) {
       return Ok(path);
     }
 
+    // Google Chrome before Chromium, for the same reason as the macOS order.
     let mut candidates = Vec::new();
     for var in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"] {
       if let Some(root) = std::env::var_os(var) {
         let root = PathBuf::from(root);
-        candidates.push(root.join("Chromium").join("Application").join("chrome.exe"));
         candidates.push(
           root
             .join("Google")
@@ -174,6 +186,7 @@ pub fn get_system_chromium_executable_path(
             .join("Application")
             .join("chrome.exe"),
         );
+        candidates.push(root.join("Chromium").join("Application").join("chrome.exe"));
       }
     }
 
@@ -612,6 +625,36 @@ mod tests {
 
     let exe = macos::get_wayfern_executable_path(install_dir)
       .expect("legacy Chromium executable should still be found");
+    assert_eq!(exe.file_name().unwrap().to_str().unwrap(), "Chromium");
+  }
+
+  #[cfg(target_os = "macos")]
+  #[test]
+  fn test_google_chrome_preferred_over_chromium() {
+    use tempfile::TempDir;
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().to_path_buf();
+
+    for app in ["Chromium", "Google Chrome"] {
+      let macos_dir = root
+        .join(format!("{app}.app"))
+        .join("Contents")
+        .join("MacOS");
+      std::fs::create_dir_all(&macos_dir).unwrap();
+      std::fs::File::create(macos_dir.join(app)).unwrap();
+    }
+
+    let roots = vec![root];
+    let (_, chrome_apps) = MACOS_BROWSER_FAMILIES[0];
+    let (_, chromium_apps) = MACOS_BROWSER_FAMILIES[1];
+
+    // The first family must resolve to Chrome even though Chromium is installed:
+    // an unbranded Chromium leaks a distinguishable Sec-CH-UA / codec profile.
+    let exe = bundle_executable_in(&roots, chrome_apps).expect("Chrome bundle should be found");
+    assert_eq!(exe.file_name().unwrap().to_str().unwrap(), "Google Chrome");
+
+    // Chromium stays reachable as the fallback family.
+    let exe = bundle_executable_in(&roots, chromium_apps).expect("Chromium bundle should be found");
     assert_eq!(exe.file_name().unwrap().to_str().unwrap(), "Chromium");
   }
 
