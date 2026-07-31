@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "页面上未找到合适的链接。",
     "automationNoEligibleProfiles": "目标配置文件当前都无法自动化。",
     "automationLinkClickFailed": "已点击页面上找到的链接，但没有一个发生跳转。",
+    "automationNoReachableLink": "在页面上找到了链接，但没有一个能滚动到可点击的位置。",
     "automationRunStillRunning": "删除历史前请先停止此自动化运行。",
     "automationScreenshotNotFound": "该截图文件已不存在。"
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "已取消"
       },
       "screenshot": "截图 {{index}}",
+      "failureScreenshot": "出错时的截图",
       "expandRun": "展开运行",
       "collapseRun": "折叠运行",
       "deleteRun": "删除运行",

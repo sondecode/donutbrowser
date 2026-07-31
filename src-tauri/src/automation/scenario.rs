@@ -194,6 +194,11 @@ pub struct Scenario {
   /// true so existing scenarios keep syncing after the field is introduced.
   #[serde(default = "default_true")]
   pub sync_enabled: bool,
+  /// Unix seconds of the last upload or download. Display only — `updated_at`
+  /// decides sync direction — but it is what lets the UI answer "has this been
+  /// backed up yet?" per scenario.
+  #[serde(default)]
+  pub last_sync: Option<u64>,
 }
 
 impl Scenario {
@@ -259,6 +264,7 @@ impl Scenario {
       built_in: true,
       updated_at: None,
       sync_enabled: true,
+      last_sync: None,
     }
   }
 

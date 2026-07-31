@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "Sayfada uygun bir bağlantı bulunamadı.",
     "automationNoEligibleProfiles": "Hedeflenen profillerin hiçbiri şu anda otomatikleştirilemez.",
     "automationLinkClickFailed": "Sayfada bulunan bağlantılara tıklandı ancak hiçbiri bir yere gitmedi.",
+    "automationNoReachableLink": "Sayfada bağlantılar bulundu ancak hiçbiri tıklanacak şekilde görünür alana kaydırılamadı.",
     "automationRunStillRunning": "Geçmişini silmeden önce bu otomasyon çalıştırmasını durdurun.",
     "automationScreenshotNotFound": "Bu ekran görüntüsü dosyası artık yok."
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "İptal edildi"
       },
       "screenshot": "Ekran görüntüsü {{index}}",
+      "failureScreenshot": "Hata anındaki ekran görüntüsü",
       "expandRun": "Çalıştırmayı genişlet",
       "collapseRun": "Çalıştırmayı daralt",
       "deleteRun": "Çalıştırmayı sil",

@@ -2061,7 +2061,7 @@ impl McpServer {
       "get_automation_scenario" => Self::handle_get_automation_scenario(arguments),
       "create_automation_scenario" => Self::handle_create_automation_scenario(arguments),
       "update_automation_scenario" => Self::handle_update_automation_scenario(arguments),
-      "delete_automation_scenario" => Self::handle_delete_automation_scenario(arguments),
+      "delete_automation_scenario" => self.handle_delete_automation_scenario(arguments).await,
       "run_automation" => {
         Self::require_capability("Browser automation", true).await?;
         self.handle_run_automation(arguments).await
@@ -5365,12 +5365,19 @@ impl McpServer {
     Self::json_result(&serde_json::to_value(updated).unwrap_or_default())
   }
 
-  fn handle_delete_automation_scenario(
+  async fn handle_delete_automation_scenario(
+    &self,
     arguments: &serde_json::Value,
   ) -> Result<serde_json::Value, McpError> {
     let scenario_id = Self::required_str(arguments, "scenario_id")?;
+    let inner = self.inner.lock().await;
+    let app_handle = inner.app_handle.as_ref().ok_or_else(|| McpError {
+      code: -32000,
+      message: "MCP server not properly initialized".to_string(),
+    })?;
+
     crate::automation::storage::ScenarioStore::new()
-      .delete(&scenario_id)
+      .delete(app_handle, &scenario_id)
       .map_err(Self::automation_error)?;
     Ok(serde_json::json!({
       "content": [{

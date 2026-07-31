@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "No suitable link was found on the page.",
     "automationNoEligibleProfiles": "None of the targeted profiles can be automated right now.",
     "automationLinkClickFailed": "Clicked the links found on the page but none of them navigated anywhere.",
+    "automationNoReachableLink": "Found links on the page but none could be scrolled into view to click.",
     "automationRunStillRunning": "Stop this automation run before deleting its history.",
     "automationScreenshotNotFound": "That screenshot file no longer exists."
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "Cancelled"
       },
       "screenshot": "Screenshot {{index}}",
+      "failureScreenshot": "Screenshot at failure",
       "expandRun": "Expand run",
       "collapseRun": "Collapse run",
       "deleteRun": "Delete run",

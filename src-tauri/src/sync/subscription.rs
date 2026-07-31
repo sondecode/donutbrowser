@@ -26,7 +26,7 @@ pub enum SyncWorkItem {
   Vpn(String),
   Extension(String),
   ExtensionGroup(String),
-  AutomationScenarios,
+  AutomationScenario(String),
   Tombstone(String, String),
 }
 
@@ -318,8 +318,12 @@ impl SyncSubscription {
         .strip_prefix("extension_groups/")
         .and_then(|s| s.strip_suffix(".json"))
         .map(|s| SyncWorkItem::ExtensionGroup(s.to_string()))
-    } else if key == "automation_scenarios.json" {
-      Some(SyncWorkItem::AutomationScenarios)
+    } else if let Some(id) = key
+      .strip_prefix("automation/")
+      .and_then(|rest| rest.strip_suffix(".json"))
+      .filter(|id| !id.contains('/'))
+    {
+      Some(SyncWorkItem::AutomationScenario(id.to_string()))
     } else if key.starts_with("tombstones/") {
       key.strip_prefix("tombstones/").and_then(|rest| {
         if rest.starts_with("profiles/") {

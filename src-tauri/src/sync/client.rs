@@ -1,6 +1,36 @@
 use super::types::*;
 use reqwest::Client;
 
+/// Which `x-amz-meta-*` headers still need to be sent alongside a presigned PUT.
+///
+/// SigV4 presigners hoist `x-amz-*` into the URL's query string and sign only
+/// `host` (visible as `X-Amz-SignedHeaders=host` plus `&x-amz-...=` pairs). An
+/// `x-amz-*` header that is NOT in `X-Amz-SignedHeaders` invalidates the
+/// request — S3 and R2 answer `403 SignatureDoesNotMatch` — so a header must be
+/// sent only when the URL didn't already carry that key. Servers that sign
+/// metadata as a real header instead still get it, because then it is absent
+/// from the query string.
+fn metadata_headers_for(
+  presigned_url: &str,
+  metadata: Option<&std::collections::HashMap<String, String>>,
+) -> Vec<(String, String)> {
+  let Some(metadata) = metadata else {
+    return Vec::new();
+  };
+  let query = presigned_url
+    .split_once('?')
+    .map(|(_, query)| query)
+    .unwrap_or_default()
+    .to_ascii_lowercase();
+
+  metadata
+    .iter()
+    .map(|(key, value)| (format!("x-amz-meta-{}", key.to_ascii_lowercase()), value))
+    .filter(|(name, _)| !query.contains(&format!("{name}=")))
+    .map(|(name, value)| (name, value.clone()))
+    .collect()
+}
+
 #[derive(Clone)]
 pub struct SyncClient {
   client: Client,
@@ -228,10 +258,8 @@ impl SyncClient {
       req = req.header("Content-Type", ct);
     }
 
-    if let Some(meta) = metadata {
-      for (k, v) in meta {
-        req = req.header(format!("x-amz-meta-{k}"), v);
-      }
+    for (name, value) in metadata_headers_for(presigned_url, metadata) {
+      req = req.header(name, value);
     }
 
     let response = req
@@ -384,5 +412,66 @@ impl SyncClient {
       .json()
       .await
       .map_err(|e| SyncError::SerializationError(e.to_string()))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::collections::HashMap;
+
+  fn metadata(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+    pairs
+      .iter()
+      .map(|(k, v)| (k.to_string(), v.to_string()))
+      .collect()
+  }
+
+  /// The shape every config upload actually hit: the presigner hoisted the
+  /// metadata into the query and signed only `host`, so sending it as a header
+  /// too made R2 answer 403 SignatureDoesNotMatch and no proxy, group or
+  /// scenario ever reached the bucket.
+  #[test]
+  fn hoisted_metadata_is_not_resent_as_a_header() {
+    let url = "https://example.r2.cloudflarestorage.com/bucket/proxies/x.json\
+               ?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-SignedHeaders=host\
+               &x-amz-meta-updated-at=1785288697&X-Amz-Signature=deadbeef";
+    assert!(metadata_headers_for(url, Some(&metadata(&[("updated-at", "1785288697")]))).is_empty());
+  }
+
+  #[test]
+  fn metadata_signed_as_a_real_header_is_still_sent() {
+    let url = "https://example.com/bucket/proxies/x.json\
+               ?X-Amz-SignedHeaders=host%3Bx-amz-meta-updated-at&X-Amz-Signature=deadbeef";
+    assert_eq!(
+      metadata_headers_for(url, Some(&metadata(&[("updated-at", "1785288697")]))),
+      vec![(
+        "x-amz-meta-updated-at".to_string(),
+        "1785288697".to_string()
+      )]
+    );
+  }
+
+  #[test]
+  fn only_the_hoisted_keys_are_dropped() {
+    let url = "https://example.com/b/k?x-amz-meta-updated-at=1&X-Amz-Signature=d";
+    let headers =
+      metadata_headers_for(url, Some(&metadata(&[("updated-at", "1"), ("other", "2")])));
+    assert_eq!(
+      headers,
+      vec![("x-amz-meta-other".to_string(), "2".to_string())]
+    );
+  }
+
+  #[test]
+  fn no_metadata_and_no_query_are_both_handled() {
+    assert!(metadata_headers_for("https://example.com/b/k", None).is_empty());
+    assert_eq!(
+      metadata_headers_for(
+        "https://example.com/b/k",
+        Some(&metadata(&[("updated-at", "7")]))
+      ),
+      vec![("x-amz-meta-updated-at".to_string(), "7".to_string())]
+    );
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { GoPlus } from "react-icons/go";
@@ -94,6 +95,61 @@ function useCountdown(waitingUntil: number | undefined): number | null {
   return Math.max(0, waitingUntil - now);
 }
 
+type ScenarioSyncStatus = { status: string; error?: string | null };
+
+/// A scenario with sync switched on but no `last_sync` has never actually
+/// reached the bucket, so it must not read as backed up — that gap is the whole
+/// reason this indicator exists.
+function ScenarioSyncDot({
+  scenario,
+  live,
+}: {
+  scenario: AutomationScenario;
+  live?: ScenarioSyncStatus;
+}) {
+  const { t } = useTranslation();
+
+  let color = "bg-muted-foreground";
+  let tooltip = t("syncTooltips.notSynced");
+  let animate = false;
+
+  if (live?.status === "syncing") {
+    color = "bg-warning";
+    tooltip = t("syncTooltips.syncing");
+    animate = true;
+  } else if (live?.status === "error") {
+    color = "bg-destructive";
+    tooltip = live.error
+      ? t("syncTooltips.errorWith", { error: live.error })
+      : t("syncTooltips.error");
+  } else if (scenario.sync_enabled ?? true) {
+    if (scenario.last_sync) {
+      color = "bg-success";
+      tooltip = t("syncTooltips.syncedAt", {
+        time: new Date(scenario.last_sync * 1000).toLocaleString(),
+      });
+    } else {
+      color = "bg-warning";
+      tooltip = t("syncTooltips.waiting");
+    }
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            color,
+            animate && "animate-pulse",
+          )}
+        />
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function ProfileRunRow({
   run,
   onOpenScreenshot,
@@ -169,6 +225,28 @@ function ProfileRunRow({
 
       {run.error && (
         <p className="text-xs text-destructive break-words">{run.error}</p>
+      )}
+
+      {run.failure_screenshot && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-fit gap-1.5 border-destructive/50 px-2 text-xs text-destructive hover:text-destructive"
+              onClick={() => {
+                onOpenScreenshot(run.failure_screenshot as string);
+              }}
+            >
+              <LuImage className="size-3.5" />
+              {t("automation.runs.failureScreenshot")}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-md break-all">
+            {run.failure_screenshot}
+          </TooltipContent>
+        </Tooltip>
       )}
     </div>
   );
@@ -303,6 +381,30 @@ export function AutomationDialog({
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [syncStatuses, setSyncStatuses] = useState<
+    Record<string, ScenarioSyncStatus>
+  >({});
+
+  useEffect(() => {
+    const unlisten = listen<{
+      id: string;
+      status: string;
+      error?: string | null;
+    }>("automation-scenario-sync-status", (event) => {
+      const { id, status, error } = event.payload;
+      setSyncStatuses((prev) => ({ ...prev, [id]: { status, error } }));
+      // A finished sync writes last_sync to disk; re-read so the dot's tooltip
+      // shows the real timestamp instead of the transient live status.
+      if (status === "synced") {
+        void loadScenarios();
+      }
+    });
+    return () => {
+      void unlisten.then((off) => {
+        off();
+      });
+    };
+  }, [loadScenarios]);
 
   const activeRuns = useMemo(
     () => runs.filter((run) => run.status === "running").length,
@@ -540,19 +642,25 @@ export function AutomationDialog({
                             })}
                           </TableCell>
                           <TableCell>
-                            <AnimatedSwitch
-                              checked={scenario.sync_enabled ?? true}
-                              disabled={isTogglingSync[scenario.id]}
-                              aria-label={t("automation.table.syncScenario", {
-                                name: scenario.name,
-                              })}
-                              onCheckedChange={(checked) => {
-                                void handleToggleScenarioSync(
-                                  scenario,
-                                  checked,
-                                );
-                              }}
-                            />
+                            <div className="flex items-center gap-2">
+                              <AnimatedSwitch
+                                checked={scenario.sync_enabled ?? true}
+                                disabled={isTogglingSync[scenario.id]}
+                                aria-label={t("automation.table.syncScenario", {
+                                  name: scenario.name,
+                                })}
+                                onCheckedChange={(checked) => {
+                                  void handleToggleScenarioSync(
+                                    scenario,
+                                    checked,
+                                  );
+                                }}
+                              />
+                              <ScenarioSyncDot
+                                scenario={scenario}
+                                live={syncStatuses[scenario.id]}
+                              />
+                            </div>
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {scenario.updated_at

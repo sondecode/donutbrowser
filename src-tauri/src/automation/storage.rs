@@ -1,8 +1,15 @@
 //! Persistence for automation scenario templates.
 //!
-//! Stateless like `GroupManager` — every call reads and writes
-//! `automation_scenarios.json` under the app data dir, so there is no global
+//! Stateless like `GroupManager` — every call reads and writes the
+//! `automation/` directory under the app data dir, so there is no global
 //! mutable state to initialize.
+//!
+//! One file per scenario (`automation/{id}.json`), mirroring how proxies and
+//! groups are stored. The previous single `automation_scenarios.json` blob made
+//! every edit re-upload the whole collection and gave two devices editing
+//! different scenarios a last-write-wins fight over one object; per-scenario
+//! files give each one its own `updated_at`, its own remote key and its own
+//! tombstone. `migrate_legacy_file` moves the old layout across on first read.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -10,59 +17,27 @@ use std::fs;
 use crate::automation::scenario::Scenario;
 use crate::proxy_manager::now_secs;
 
+/// The pre-split on-disk shape, still parsed so existing installs migrate.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct ScenariosData {
   #[serde(default)]
   pub(crate) scenarios: Vec<Scenario>,
-  /// Whether the shipped default template has already been written out. Tracked
-  /// separately so deleting it doesn't make it reappear on the next read.
   #[serde(default)]
   pub(crate) seeded: bool,
-  /// Unix seconds of the last meaningful collection edit. Scenario sync is a
-  /// single JSON object, so this timestamp drives collection-level LWW.
   #[serde(default)]
   pub(crate) updated_at: Option<u64>,
 }
 
-impl ScenariosData {
-  pub(crate) fn sync_payload(&self) -> Self {
-    Self {
-      scenarios: self
-        .scenarios
-        .iter()
-        .filter(|scenario| scenario.sync_enabled)
-        .cloned()
-        .collect(),
-      seeded: self.seeded,
-      updated_at: self.updated_at,
-    }
-  }
-
-  pub(crate) fn merge_remote(&mut self, mut remote: Self) {
-    let disabled_ids: std::collections::HashSet<String> = self
-      .scenarios
-      .iter()
-      .filter(|scenario| !scenario.sync_enabled)
-      .map(|scenario| scenario.id.clone())
-      .collect();
-
-    for scenario in &mut remote.scenarios {
-      scenario.sync_enabled = true;
-    }
-
-    self
-      .scenarios
-      .retain(|scenario| !scenario.sync_enabled || disabled_ids.contains(&scenario.id));
-    self.scenarios.extend(
-      remote
-        .scenarios
-        .into_iter()
-        .filter(|scenario| !disabled_ids.contains(&scenario.id)),
-    );
-    self.seeded = self.seeded || remote.seeded;
-    self.updated_at = remote.updated_at;
-  }
+/// Directory-level bookkeeping that isn't a scenario.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct StoreState {
+  /// Whether the shipped default template has already been written out. Tracked
+  /// separately so deleting it doesn't make it reappear on the next read.
+  #[serde(default)]
+  seeded: bool,
 }
+
+const STATE_FILE: &str = "state.json";
 
 pub struct ScenarioStore;
 
@@ -71,63 +46,162 @@ impl ScenarioStore {
     Self
   }
 
-  fn file_path(&self) -> std::path::PathBuf {
+  pub(crate) fn dir(&self) -> std::path::PathBuf {
+    crate::app_dirs::data_subdir().join("automation")
+  }
+
+  fn scenario_path(&self, id: &str) -> std::path::PathBuf {
+    self.dir().join(format!("{id}.json"))
+  }
+
+  fn state_path(&self) -> std::path::PathBuf {
+    self.dir().join(STATE_FILE)
+  }
+
+  fn legacy_path(&self) -> std::path::PathBuf {
     crate::app_dirs::data_subdir().join("automation_scenarios.json")
   }
 
-  pub(crate) fn load_data(&self) -> Result<ScenariosData, String> {
-    let path = self.file_path();
-    if !path.exists() {
-      return Ok(ScenariosData::default());
+  fn ensure_dir(&self) -> Result<std::path::PathBuf, String> {
+    let dir = self.dir();
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create automation dir: {e}"))?;
+    Ok(dir)
+  }
+
+  fn load_state(&self) -> StoreState {
+    fs::read_to_string(self.state_path())
+      .ok()
+      .and_then(|content| serde_json::from_str(&content).ok())
+      .unwrap_or_default()
+  }
+
+  fn save_state(&self, state: &StoreState) -> Result<(), String> {
+    self.ensure_dir()?;
+    let json = serde_json::to_string_pretty(state)
+      .map_err(|e| format!("Failed to serialize automation state: {e}"))?;
+    fs::write(self.state_path(), json).map_err(|e| format!("Failed to write automation state: {e}"))
+  }
+
+  /// Split the pre-split blob into per-scenario files, once. The old file is
+  /// renamed rather than deleted so a bad migration stays recoverable by hand.
+  fn migrate_legacy_file(&self) -> Result<(), String> {
+    let legacy = self.legacy_path();
+    if !legacy.exists() {
+      return Ok(());
     }
+
     let content =
-      fs::read_to_string(&path).map_err(|e| format!("Failed to read scenarios file: {e}"))?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse scenarios file: {e}"))
-  }
+      fs::read_to_string(&legacy).map_err(|e| format!("Failed to read scenarios file: {e}"))?;
+    let data: ScenariosData =
+      serde_json::from_str(&content).map_err(|e| format!("Failed to parse scenarios file: {e}"))?;
 
-  pub(crate) fn save_data(&self, data: &ScenariosData) -> Result<(), String> {
-    let path = self.file_path();
-    if let Some(parent) = path.parent() {
-      fs::create_dir_all(parent).map_err(|e| format!("Failed to create data dir: {e}"))?;
+    self.ensure_dir()?;
+    for scenario in &data.scenarios {
+      // Never clobber a per-scenario file that already exists: it is newer than
+      // the blob by definition.
+      let path = self.scenario_path(&scenario.id);
+      if !path.exists() {
+        self.write_scenario(scenario)?;
+      }
     }
-    let json = serde_json::to_string_pretty(data)
-      .map_err(|e| format!("Failed to serialize scenarios: {e}"))?;
-    fs::write(&path, json).map_err(|e| format!("Failed to write scenarios file: {e}"))
+    self.save_state(&StoreState {
+      seeded: data.seeded,
+    })?;
+
+    let retired = legacy.with_extension("json.migrated");
+    fs::rename(&legacy, &retired)
+      .map_err(|e| format!("Failed to retire legacy scenarios file: {e}"))?;
+    log::info!(
+      "Migrated {} automation scenario(s) into {}",
+      data.scenarios.len(),
+      self.dir().display()
+    );
+    Ok(())
   }
 
-  fn save_user_edit(&self, data: &mut ScenariosData) -> Result<(), String> {
-    data.updated_at = Some(now_secs());
-    self.save_data(data)?;
+  pub(crate) fn write_scenario(&self, scenario: &Scenario) -> Result<(), String> {
+    self.ensure_dir()?;
+    let json = serde_json::to_string_pretty(scenario)
+      .map_err(|e| format!("Failed to serialize scenario: {e}"))?;
+    fs::write(self.scenario_path(&scenario.id), json)
+      .map_err(|e| format!("Failed to write scenario file: {e}"))
+  }
+
+  /// Every scenario on disk, unsorted, with no seeding side effect.
+  fn read_all(&self) -> Result<Vec<Scenario>, String> {
+    let dir = self.dir();
+    if !dir.exists() {
+      return Ok(Vec::new());
+    }
+
+    let mut scenarios = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|e| format!("Failed to read automation dir: {e}"))? {
+      let entry = entry.map_err(|e| format!("Failed to read automation dir entry: {e}"))?;
+      let path = entry.path();
+      if path.extension().is_none_or(|ext| ext != "json") {
+        continue;
+      }
+      if path.file_name().is_some_and(|name| name == STATE_FILE) {
+        continue;
+      }
+      match fs::read_to_string(&path).map(|c| serde_json::from_str::<Scenario>(&c)) {
+        Ok(Ok(scenario)) => scenarios.push(scenario),
+        Ok(Err(e)) => log::warn!("Skipping unparsable scenario file {}: {e}", path.display()),
+        Err(e) => log::warn!("Skipping unreadable scenario file {}: {e}", path.display()),
+      }
+    }
+    Ok(scenarios)
+  }
+
+  fn after_user_edit(&self, scenario_id: &str) {
     let _ = crate::events::emit("automation-scenarios-changed", ());
-    crate::sync::queue_automation_scenarios_sync_if_available();
-    Ok(())
+    crate::sync::queue_automation_scenario_sync_if_available(scenario_id.to_string());
   }
 
   /// Load every scenario, seeding the shipped default on first ever read.
   pub fn list(&self) -> Result<Vec<Scenario>, String> {
-    let mut data = self.load_data()?;
-    if !data.seeded {
+    self.migrate_legacy_file()?;
+
+    let mut scenarios = self.read_all()?;
+    let mut state = self.load_state();
+    if !state.seeded {
       let mut builtin = Scenario::builtin_warmup();
       builtin.updated_at = Some(now_secs());
-      data.scenarios.insert(0, builtin);
-      data.seeded = true;
-      data.updated_at = Some(now_secs());
-      self.save_data(&data)?;
+      self.write_scenario(&builtin)?;
+      scenarios.insert(0, builtin);
+      state.seeded = true;
+      self.save_state(&state)?;
     }
-    Ok(data.scenarios)
+
+    // Newest edit first, with a name tiebreak so the order is stable across
+    // machines rather than dependent on directory iteration.
+    scenarios.sort_by(|a, b| {
+      b.updated_at
+        .unwrap_or(0)
+        .cmp(&a.updated_at.unwrap_or(0))
+        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok(scenarios)
   }
 
-  pub(crate) fn sync_payload(&self) -> Result<ScenariosData, String> {
-    let _ = self.list()?;
-    Ok(self.load_data()?.sync_payload())
+  /// Read one scenario straight off disk, skipping the seeding pass.
+  pub(crate) fn read(&self, id: &str) -> Result<Option<Scenario>, String> {
+    let path = self.scenario_path(id);
+    if !path.exists() {
+      return Ok(None);
+    }
+    let content =
+      fs::read_to_string(&path).map_err(|e| format!("Failed to read scenario file: {e}"))?;
+    serde_json::from_str(&content)
+      .map(Some)
+      .map_err(|e| format!("Failed to parse scenario file: {e}"))
   }
 
-  pub(crate) fn merge_from_sync(&self, remote: ScenariosData) -> Result<(), String> {
-    let _ = self.list()?;
-    let mut local = self.load_data()?;
-    local.merge_remote(remote);
-    self.save_data(&local)?;
-    let _ = crate::events::emit("automation-scenarios-changed", ());
+  pub(crate) fn remove_file(&self, id: &str) -> Result<(), String> {
+    let path = self.scenario_path(id);
+    if path.exists() {
+      fs::remove_file(&path).map_err(|e| format!("Failed to delete scenario file: {e}"))?;
+    }
     Ok(())
   }
 
@@ -147,12 +221,9 @@ impl ScenarioStore {
   pub fn create(&self, mut scenario: Scenario) -> Result<Scenario, String> {
     scenario.validate()?;
 
-    let _ = self.list()?;
-    let mut data = self.load_data()?;
-    data.seeded = true;
-
+    let existing = self.list()?;
     let name = scenario.name.trim().to_string();
-    if data.scenarios.iter().any(|s| s.name == name) {
+    if existing.iter().any(|s| s.name == name) {
       return Err(
         serde_json::json!({
           "code": "AUTOMATION_SCENARIO_ALREADY_EXISTS",
@@ -167,9 +238,10 @@ impl ScenarioStore {
     scenario.built_in = false;
     scenario.updated_at = Some(now_secs());
     scenario.sync_enabled = true;
+    scenario.last_sync = None;
 
-    data.scenarios.push(scenario.clone());
-    self.save_user_edit(&mut data)?;
+    self.write_scenario(&scenario)?;
+    self.after_user_edit(&scenario.id);
     Ok(scenario)
   }
 
@@ -177,21 +249,14 @@ impl ScenarioStore {
   pub fn update(&self, id: &str, mut scenario: Scenario) -> Result<Scenario, String> {
     scenario.validate()?;
 
-    let _ = self.list()?;
-    let mut data = self.load_data()?;
-    data.seeded = true;
-
-    let index = data
-      .scenarios
-      .iter()
-      .position(|s| s.id == id)
-      .ok_or_else(|| {
-        serde_json::json!({ "code": "AUTOMATION_SCENARIO_NOT_FOUND", "params": { "id": id } })
-          .to_string()
-      })?;
+    let existing = self.list()?;
+    let current = existing.iter().find(|s| s.id == id).ok_or_else(|| {
+      serde_json::json!({ "code": "AUTOMATION_SCENARIO_NOT_FOUND", "params": { "id": id } })
+        .to_string()
+    })?;
 
     let name = scenario.name.trim().to_string();
-    if data.scenarios.iter().any(|s| s.id != id && s.name == name) {
+    if existing.iter().any(|s| s.id != id && s.name == name) {
       return Err(
         serde_json::json!({
           "code": "AUTOMATION_SCENARIO_ALREADY_EXISTS",
@@ -203,56 +268,182 @@ impl ScenarioStore {
 
     scenario.id = id.to_string();
     scenario.name = name;
-    scenario.built_in = data.scenarios[index].built_in;
+    scenario.built_in = current.built_in;
     scenario.updated_at = Some(now_secs());
-    scenario.sync_enabled = data.scenarios[index].sync_enabled;
+    scenario.sync_enabled = current.sync_enabled;
+    scenario.last_sync = current.last_sync;
 
-    data.scenarios[index] = scenario.clone();
-    self.save_user_edit(&mut data)?;
+    self.write_scenario(&scenario)?;
+    self.after_user_edit(id);
     Ok(scenario)
   }
 
   pub fn set_sync_enabled(&self, id: &str, enabled: bool) -> Result<Scenario, String> {
-    let _ = self.list()?;
-    let mut data = self.load_data()?;
-    data.seeded = true;
+    let mut scenario = self.get(id)?;
+    scenario.sync_enabled = enabled;
+    scenario.updated_at = Some(now_secs());
 
-    let index = data
-      .scenarios
-      .iter()
-      .position(|s| s.id == id)
-      .ok_or_else(|| {
-        serde_json::json!({ "code": "AUTOMATION_SCENARIO_NOT_FOUND", "params": { "id": id } })
-          .to_string()
-      })?;
-
-    data.scenarios[index].sync_enabled = enabled;
-    data.scenarios[index].updated_at = Some(now_secs());
-    let scenario = data.scenarios[index].clone();
-    self.save_user_edit(&mut data)?;
+    self.write_scenario(&scenario)?;
+    self.after_user_edit(id);
     Ok(scenario)
   }
 
-  pub fn delete(&self, id: &str) -> Result<(), String> {
-    let _ = self.list()?;
-    let mut data = self.load_data()?;
-    data.seeded = true;
+  /// Record an upload or download. Deliberately does NOT touch `updated_at`:
+  /// sync bookkeeping must never look like a user edit, or the next reconcile
+  /// would see this side as newer and push it straight back.
+  pub(crate) fn mark_synced(&self, id: &str, at: u64) -> Result<(), String> {
+    let Some(mut scenario) = self.read(id)? else {
+      return Ok(());
+    };
+    scenario.last_sync = Some(at);
+    self.write_scenario(&scenario)
+  }
 
-    let before = data.scenarios.len();
-    data.scenarios.retain(|s| s.id != id);
-    if data.scenarios.len() == before {
-      return Err(
-        serde_json::json!({ "code": "AUTOMATION_SCENARIO_NOT_FOUND", "params": { "id": id } })
-          .to_string(),
-      );
+  pub fn delete(&self, app_handle: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    let existing = self.list()?;
+    let scenario = existing.iter().find(|s| s.id == id).ok_or_else(|| {
+      serde_json::json!({ "code": "AUTOMATION_SCENARIO_NOT_FOUND", "params": { "id": id } })
+        .to_string()
+    })?;
+    let was_synced = scenario.sync_enabled;
+
+    self.remove_file(id)?;
+    let _ = crate::events::emit("automation-scenarios-changed", ());
+
+    // Without a tombstone the next reconcile sees the scenario missing locally
+    // but present remotely and downloads it straight back.
+    if was_synced {
+      let id = id.to_string();
+      let app_handle = app_handle.clone();
+      tauri::async_runtime::spawn(async move {
+        match crate::sync::SyncEngine::create_from_settings(&app_handle).await {
+          Ok(engine) => {
+            if let Err(e) = engine.delete_automation_scenario(&id).await {
+              log::warn!("Failed to delete scenario {id} from sync: {e}");
+            }
+          }
+          Err(e) => log::debug!("Sync not configured, skipping remote deletion: {e}"),
+        }
+      });
     }
-
-    self.save_user_edit(&mut data)
+    Ok(())
   }
 }
 
 impl Default for ScenarioStore {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::automation::scenario::{Scenario, Step};
+
+  fn scenario(id: &str, name: &str) -> Scenario {
+    Scenario {
+      id: id.to_string(),
+      name: name.to_string(),
+      description: None,
+      variables: Vec::new(),
+      steps: vec![Step::CloseProfile],
+      built_in: false,
+      updated_at: Some(1_000),
+      sync_enabled: true,
+      last_sync: None,
+    }
+  }
+
+  fn legacy_blob(store: &ScenarioStore, scenarios: Vec<Scenario>, seeded: bool) {
+    fs::create_dir_all(crate::app_dirs::data_subdir()).unwrap();
+    let data = ScenariosData {
+      scenarios,
+      seeded,
+      updated_at: Some(2_000),
+    };
+    fs::write(
+      store.legacy_path(),
+      serde_json::to_string_pretty(&data).unwrap(),
+    )
+    .unwrap();
+  }
+
+  #[test]
+  fn legacy_blob_becomes_one_file_per_scenario() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _guard = crate::app_dirs::set_test_data_dir(tmp.path().to_path_buf());
+    let store = ScenarioStore::new();
+    legacy_blob(
+      &store,
+      vec![scenario("a", "Alpha"), scenario("b", "Beta")],
+      true,
+    );
+
+    let listed = store.list().unwrap();
+
+    assert_eq!(listed.len(), 2);
+    assert!(store.dir().join("a.json").exists());
+    assert!(store.dir().join("b.json").exists());
+    // The old blob is retired, not deleted, so a bad migration stays recoverable.
+    assert!(!store.legacy_path().exists());
+    assert!(crate::app_dirs::data_subdir()
+      .join("automation_scenarios.json.migrated")
+      .exists());
+  }
+
+  #[test]
+  fn migration_preserves_a_deleted_builtin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _guard = crate::app_dirs::set_test_data_dir(tmp.path().to_path_buf());
+    let store = ScenarioStore::new();
+    // seeded=true with no scenarios means the user deleted the shipped template.
+    legacy_blob(&store, Vec::new(), true);
+
+    assert!(store.list().unwrap().is_empty());
+  }
+
+  #[test]
+  fn migration_never_clobbers_an_existing_per_scenario_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _guard = crate::app_dirs::set_test_data_dir(tmp.path().to_path_buf());
+    let store = ScenarioStore::new();
+
+    let mut newer = scenario("a", "Newer");
+    newer.updated_at = Some(9_999);
+    store.write_scenario(&newer).unwrap();
+    legacy_blob(&store, vec![scenario("a", "Stale")], true);
+
+    let listed = store.list().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].name, "Newer");
+  }
+
+  #[test]
+  fn mark_synced_records_the_backup_without_faking_an_edit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _guard = crate::app_dirs::set_test_data_dir(tmp.path().to_path_buf());
+    let store = ScenarioStore::new();
+    store.write_scenario(&scenario("a", "Alpha")).unwrap();
+
+    store.mark_synced("a", 5_000).unwrap();
+
+    let stored = store.read("a").unwrap().unwrap();
+    assert_eq!(stored.last_sync, Some(5_000));
+    // Bumping updated_at here would make the next reconcile think this side is
+    // newer and push it straight back — the ping-pong bug.
+    assert_eq!(stored.updated_at, Some(1_000));
+  }
+
+  #[test]
+  fn state_file_is_not_mistaken_for_a_scenario() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _guard = crate::app_dirs::set_test_data_dir(tmp.path().to_path_buf());
+    let store = ScenarioStore::new();
+
+    // First read seeds the builtin and writes state.json alongside it.
+    assert_eq!(store.list().unwrap().len(), 1);
+    assert!(store.dir().join(STATE_FILE).exists());
+    assert_eq!(store.list().unwrap().len(), 1);
   }
 }

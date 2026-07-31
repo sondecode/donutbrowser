@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "ページ内に適切なリンクが見つかりませんでした。",
     "automationNoEligibleProfiles": "対象のプロファイルはいずれも現在自動化できません。",
     "automationLinkClickFailed": "ページ上で見つかったリンクをクリックしましたが、どれも遷移しませんでした。",
+    "automationNoReachableLink": "ページ内にリンクは見つかりましたが、クリックできる位置までスクロールできませんでした。",
     "automationRunStillRunning": "履歴を削除する前に、この自動化の実行を停止してください。",
     "automationScreenshotNotFound": "そのスクリーンショットファイルは存在しません。"
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "キャンセル"
       },
       "screenshot": "スクリーンショット {{index}}",
+      "failureScreenshot": "エラー時のスクリーンショット",
       "expandRun": "実行を展開",
       "collapseRun": "実行を折りたたむ",
       "deleteRun": "実行を削除",

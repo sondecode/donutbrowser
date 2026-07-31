@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "Aucun lien approprié n'a été trouvé sur la page.",
     "automationNoEligibleProfiles": "Aucun des profils ciblés ne peut être automatisé pour le moment.",
     "automationLinkClickFailed": "Les liens trouvés sur la page ont été cliqués, mais aucun n'a mené quelque part.",
+    "automationNoReachableLink": "Des liens ont été trouvés sur la page, mais aucun n'a pu être amené à l'écran pour être cliqué.",
     "automationRunStillRunning": "Arrêtez cette exécution avant de supprimer son historique.",
     "automationScreenshotNotFound": "Ce fichier de capture d’écran n’existe plus."
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "Annulé"
       },
       "screenshot": "Capture {{index}}",
+      "failureScreenshot": "Capture lors de l'échec",
       "expandRun": "Développer l’exécution",
       "collapseRun": "Réduire l’exécution",
       "deleteRun": "Supprimer l’exécution",

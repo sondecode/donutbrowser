@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "Không tìm thấy link phù hợp trên trang.",
     "automationNoEligibleProfiles": "Không có profile nào trong số đã chọn có thể tự động hoá ngay lúc này.",
     "automationLinkClickFailed": "Đã click các link tìm được trên trang nhưng không link nào điều hướng đi đâu.",
+    "automationNoReachableLink": "Đã tìm thấy liên kết trên trang nhưng không cuộn được liên kết nào vào tầm nhìn để bấm.",
     "automationRunStillRunning": "Hãy dừng lần chạy tự động hoá này trước khi xoá lịch sử.",
     "automationScreenshotNotFound": "File ảnh chụp màn hình này không còn tồn tại."
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "Đã huỷ"
       },
       "screenshot": "Ảnh {{index}}",
+      "failureScreenshot": "Ảnh chụp khi lỗi",
       "expandRun": "Mở rộng lần chạy",
       "collapseRun": "Thu gọn lần chạy",
       "deleteRun": "Xoá lần chạy",

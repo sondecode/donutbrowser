@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "페이지에서 적절한 링크를 찾지 못했습니다.",
     "automationNoEligibleProfiles": "대상 프로필 중 지금 자동화할 수 있는 것이 없습니다.",
     "automationLinkClickFailed": "페이지에서 찾은 링크를 클릭했지만 어느 것도 이동하지 않았습니다.",
+    "automationNoReachableLink": "페이지에서 링크를 찾았지만 클릭할 수 있는 위치까지 스크롤하지 못했습니다.",
     "automationRunStillRunning": "기록을 삭제하기 전에 이 자동화 실행을 중지하세요.",
     "automationScreenshotNotFound": "해당 스크린샷 파일이 더 이상 없습니다."
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "취소됨"
       },
       "screenshot": "스크린샷 {{index}}",
+      "failureScreenshot": "오류 시점 스크린샷",
       "expandRun": "실행 펼치기",
       "collapseRun": "실행 접기",
       "deleteRun": "실행 삭제",

@@ -57,6 +57,7 @@ export type BackendErrorCode =
   | "AUTOMATION_PROFILE_ALREADY_RUNNING"
   | "AUTOMATION_NO_LINK_FOUND"
   | "AUTOMATION_LINK_CLICK_FAILED"
+  | "AUTOMATION_NO_REACHABLE_LINK"
   | "INTERNAL_ERROR";
 
 export interface BackendError {
@@ -235,6 +236,8 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.automationNoLinkFound");
     case "AUTOMATION_LINK_CLICK_FAILED":
       return t("backendErrors.automationLinkClickFailed");
+    case "AUTOMATION_NO_REACHABLE_LINK":
+      return t("backendErrors.automationNoReachableLink");
     case "INTERNAL_ERROR":
       return t("backendErrors.internal", {
         detail: parsed.params?.detail ?? "",

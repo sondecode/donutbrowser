@@ -19,7 +19,13 @@ use tokio::sync::{Mutex as TokioMutex, Semaphore};
 /// entity's user-edit timestamp in unix seconds. Used to resolve sync conflicts
 /// (last-write-wins) from a HEAD request without downloading the object body.
 const UPDATED_AT_META_KEY: &str = "updated-at";
-const AUTOMATION_SCENARIOS_KEY: &str = "automation_scenarios.json";
+/// The pre-split object holding every scenario at once. Only read, once, by
+/// `migrate_legacy_scenarios_object`.
+const LEGACY_SCENARIOS_KEY: &str = "automation_scenarios.json";
+
+fn scenario_key(scenario_id: &str) -> String {
+  format!("automation/{scenario_id}.json")
+}
 
 lazy_static::lazy_static! {
   static ref SYNC_CANCEL_FLAGS: StdMutex<HashMap<String, Arc<AtomicBool>>> =
@@ -446,85 +452,213 @@ impl SyncEngine {
     Ok(())
   }
 
-  pub async fn sync_automation_scenarios(
+  /// Import the pre-split `automation_scenarios.json` object, once.
+  ///
+  /// Scenarios used to sync as one blob. A device that upgrades must not lose
+  /// what the old object holds, so its contents are written out as per-scenario
+  /// objects and only then is the blob retired — with a tombstone, so a device
+  /// still on the old build can't resurrect it.
+  async fn migrate_legacy_scenarios_object(&self) -> SyncResult<()> {
+    let stat = self.client.stat(LEGACY_SCENARIOS_KEY).await?;
+    if !stat.exists {
+      return Ok(());
+    }
+
+    let presign = self.client.presign_download(LEGACY_SCENARIOS_KEY).await?;
+    let raw = self.client.download_bytes(&presign.url).await?;
+    let data = encryption::maybe_unseal_after_download(&raw)
+      .map_err(|e| SyncError::InvalidData(format!("Failed to unseal automation scenarios: {e}")))?;
+    let legacy: crate::automation::storage::ScenariosData =
+      serde_json::from_slice(&data).map_err(|e| {
+        SyncError::SerializationError(format!("Failed to parse automation scenarios JSON: {e}"))
+      })?;
+
+    let store = crate::automation::storage::ScenarioStore::new();
+    for mut scenario in legacy.scenarios {
+      // A per-scenario object already present is the newer authority.
+      if self.client.stat(&scenario_key(&scenario.id)).await?.exists {
+        continue;
+      }
+      scenario.sync_enabled = true;
+      if scenario.updated_at.is_none() {
+        scenario.updated_at = legacy.updated_at;
+      }
+      self.upload_automation_scenario(&scenario).await?;
+      store
+        .write_scenario(&scenario)
+        .map_err(|e| SyncError::IoError(format!("Failed to save scenario: {e}")))?;
+    }
+
+    self
+      .client
+      .delete(
+        LEGACY_SCENARIOS_KEY,
+        Some(&format!("tombstones/{LEGACY_SCENARIOS_KEY}")),
+      )
+      .await?;
+    log::info!("Migrated the legacy automation_scenarios.json object to automation/{{id}}.json");
+    Ok(())
+  }
+
+  async fn sync_automation_scenario(
     &self,
+    scenario_id: &str,
     app_handle: Option<&tauri::AppHandle>,
   ) -> SyncResult<()> {
     let store = crate::automation::storage::ScenarioStore::new();
     let local = store
-      .sync_payload()
-      .map_err(|e| SyncError::IoError(format!("Failed to load automation scenarios: {e}")))?;
-    let local_updated = local.updated_at.unwrap_or(0);
-    let stat = self.client.stat(AUTOMATION_SCENARIOS_KEY).await?;
+      .read(scenario_id)
+      .map_err(|e| SyncError::IoError(format!("Failed to load scenario: {e}")))?
+      .filter(|scenario| scenario.sync_enabled);
 
-    match stat.exists {
-      true => {
-        let remote_updated = self
-          .remote_updated_at(&stat, AUTOMATION_SCENARIOS_KEY)
-          .await;
+    let remote_key = scenario_key(scenario_id);
+    let stat = self.client.stat(&remote_key).await?;
+
+    match (local, stat.exists) {
+      (Some(scenario), true) => {
+        let local_updated = scenario.updated_at.unwrap_or(0);
+        let remote_updated = self.remote_updated_at(&stat, &remote_key).await;
         if remote_updated > local_updated {
-          self.download_automation_scenarios(app_handle).await?;
+          self
+            .download_automation_scenario(scenario_id, app_handle)
+            .await?;
         } else if local_updated > remote_updated {
-          self.upload_automation_scenarios(&local).await?;
+          self.upload_automation_scenario(&scenario).await?;
         }
       }
-      false => {
-        if !local.scenarios.is_empty() {
-          self.upload_automation_scenarios(&local).await?;
-        }
+      (Some(scenario), false) => self.upload_automation_scenario(&scenario).await?,
+      (None, true) => {
+        self
+          .download_automation_scenario(scenario_id, app_handle)
+          .await?
       }
+      (None, false) => log::debug!("Scenario {scenario_id} not found locally or remotely"),
     }
 
     Ok(())
   }
 
-  async fn upload_automation_scenarios(
+  pub async fn sync_automation_scenario_by_id_with_handle(
     &self,
-    data: &crate::automation::storage::ScenariosData,
+    scenario_id: &str,
+    app_handle: &tauri::AppHandle,
   ) -> SyncResult<()> {
-    let json = serde_json::to_string_pretty(data).map_err(|e| {
-      SyncError::SerializationError(format!("Failed to serialize automation scenarios: {e}"))
-    })?;
+    self
+      .sync_automation_scenario(scenario_id, Some(app_handle))
+      .await
+  }
+
+  async fn upload_automation_scenario(
+    &self,
+    scenario: &crate::automation::scenario::Scenario,
+  ) -> SyncResult<()> {
+    let now = crate::proxy_manager::now_secs();
+    let mut uploaded = scenario.clone();
+    uploaded.last_sync = Some(now);
+
+    let json = serde_json::to_string_pretty(&uploaded)
+      .map_err(|e| SyncError::SerializationError(format!("Failed to serialize scenario: {e}")))?;
     self
       .upload_config_json(
-        AUTOMATION_SCENARIOS_KEY,
+        &scenario_key(&scenario.id),
         &json,
-        data.updated_at.unwrap_or(0),
+        scenario.updated_at.unwrap_or(0),
       )
       .await?;
-    log::info!(
-      "Automation scenarios uploaded ({} synced scenario(s))",
-      data.scenarios.len()
-    );
+
+    crate::automation::storage::ScenarioStore::new()
+      .mark_synced(&scenario.id, now)
+      .map_err(|e| SyncError::IoError(format!("Failed to record scenario sync: {e}")))?;
+
+    log::info!("Scenario {} uploaded", scenario.id);
     Ok(())
   }
 
-  async fn download_automation_scenarios(
+  async fn download_automation_scenario(
     &self,
+    scenario_id: &str,
     app_handle: Option<&tauri::AppHandle>,
   ) -> SyncResult<()> {
-    let presign = self
-      .client
-      .presign_download(AUTOMATION_SCENARIOS_KEY)
-      .await?;
+    let remote_key = scenario_key(scenario_id);
+    let presign = self.client.presign_download(&remote_key).await?;
     let raw = self.client.download_bytes(&presign.url).await?;
     let data = encryption::maybe_unseal_after_download(&raw)
-      .map_err(|e| SyncError::InvalidData(format!("Failed to unseal automation scenarios: {e}")))?;
-    let remote: crate::automation::storage::ScenariosData =
-      serde_json::from_slice(&data).map_err(|e| {
-        SyncError::SerializationError(format!("Failed to parse automation scenarios JSON: {e}"))
-      })?;
+      .map_err(|e| SyncError::InvalidData(format!("Failed to unseal scenario: {e}")))?;
+    let mut scenario: crate::automation::scenario::Scenario = serde_json::from_slice(&data)
+      .map_err(|e| SyncError::SerializationError(format!("Failed to parse scenario JSON: {e}")))?;
+
+    // Arriving from the bucket means it is synced here too, whatever the
+    // uploading device happened to write into the body.
+    scenario.id = scenario_id.to_string();
+    scenario.sync_enabled = true;
+    scenario.last_sync = Some(crate::proxy_manager::now_secs());
 
     crate::automation::storage::ScenarioStore::new()
-      .merge_from_sync(remote)
-      .map_err(|e| SyncError::IoError(format!("Failed to save automation scenarios: {e}")))?;
+      .write_scenario(&scenario)
+      .map_err(|e| SyncError::IoError(format!("Failed to save scenario: {e}")))?;
 
     if app_handle.is_some() {
       let _ = events::emit("automation-scenarios-changed", ());
     }
 
-    log::info!("Automation scenarios downloaded");
+    log::info!("Scenario {scenario_id} downloaded");
     Ok(())
+  }
+
+  pub async fn delete_automation_scenario(&self, scenario_id: &str) -> SyncResult<()> {
+    self
+      .client
+      .delete(
+        &scenario_key(scenario_id),
+        Some(&format!("tombstones/automation/{scenario_id}.json")),
+      )
+      .await?;
+
+    log::info!("Scenario {scenario_id} deleted from sync");
+    Ok(())
+  }
+
+  /// Reconcile the config entities a profile points at. Failures are logged
+  /// rather than propagated — a proxy that can't be reached must not abort the
+  /// profile's own file sync — but they are never swallowed silently, which is
+  /// what hid a persistent `403 SignatureDoesNotMatch` on every config upload.
+  async fn sync_profile_associations(
+    &self,
+    profile: &BrowserProfile,
+    app_handle: &tauri::AppHandle,
+  ) {
+    if let Some(proxy_id) = &profile.proxy_id {
+      if let Err(e) = self.sync_proxy(proxy_id, Some(app_handle)).await {
+        log::warn!(
+          "Failed to sync proxy {proxy_id} of profile {}: {e}",
+          profile.id
+        );
+      }
+    }
+    if let Some(group_id) = &profile.group_id {
+      if let Err(e) = self.sync_group(group_id, Some(app_handle)).await {
+        log::warn!(
+          "Failed to sync group {group_id} of profile {}: {e}",
+          profile.id
+        );
+      }
+    }
+    if let Some(vpn_id) = &profile.vpn_id {
+      if let Err(e) = self.sync_vpn(vpn_id, Some(app_handle)).await {
+        log::warn!("Failed to sync VPN {vpn_id} of profile {}: {e}", profile.id);
+      }
+    }
+    if let Some(extension_group_id) = &profile.extension_group_id {
+      if let Err(e) = self
+        .sync_extension_group(extension_group_id, Some(app_handle))
+        .await
+      {
+        log::warn!(
+          "Failed to sync extension group {extension_group_id} of profile {}: {e}",
+          profile.id
+        );
+      }
+    }
   }
 
   pub async fn sync_profile(
@@ -662,6 +796,10 @@ impl SyncEngine {
 
     // Save the hash cache for future runs
     hash_cache.save(&cache_path)?;
+
+    // Before the diff, not after: a profile whose browser files are already in
+    // sync returns early below, and its config entities still need backing up.
+    self.sync_profile_associations(profile, app_handle).await;
 
     // Try to download remote manifest
     let remote_manifest_key = format!("{}profiles/{}/manifest.json", key_prefix, profile_id);
@@ -817,17 +955,6 @@ impl SyncEngine {
 
     // Sync completed successfully — clean up resume state
     SyncResumeState::delete(&profile_dir);
-
-    // Sync associated proxy, group, and VPN
-    if let Some(proxy_id) = &profile.proxy_id {
-      let _ = self.sync_proxy(proxy_id, Some(app_handle)).await;
-    }
-    if let Some(group_id) = &profile.group_id {
-      let _ = self.sync_group(group_id, Some(app_handle)).await;
-    }
-    if let Some(vpn_id) = &profile.vpn_id {
-      let _ = self.sync_vpn(vpn_id, Some(app_handle)).await;
-    }
 
     // Download remote metadata and merge changes (name, tags, notes, etc.)
     let remote_metadata_key = format!("{}profiles/{}/metadata.json", key_prefix, profile_id);
@@ -1000,13 +1127,7 @@ impl SyncEngine {
       let _ = profile_manager.save_profile(&updated);
     }
 
-    // Sync associated entities
-    if let Some(proxy_id) = &profile.proxy_id {
-      let _ = self.sync_proxy(proxy_id, Some(app_handle)).await;
-    }
-    if let Some(group_id) = &profile.group_id {
-      let _ = self.sync_group(group_id, Some(app_handle)).await;
-    }
+    self.sync_profile_associations(profile, app_handle).await;
 
     let _ = events::emit("profiles-changed", ());
     let _ = events::emit(
@@ -2945,11 +3066,118 @@ impl SyncEngine {
   }
 
   /// Check for remote entities (proxies, groups, VPNs) not present locally and download them
+  /// Reconcile every sync-enabled config entity held on this machine.
+  ///
+  /// The remote→local passes below only ever pull. Uploads used to depend on
+  /// either a user edit (the only thing that queues a `SyncWorkItem`) or a
+  /// profile happening to reference the entity, so anything else — a proxy not
+  /// attached to a synced profile, a group, the scenario list — was never
+  /// backed up at all. Each `sync_*` already resolves direction by `updated_at`,
+  /// so calling it per local id is a full two-way reconcile, not a blind push.
+  async fn back_up_local_config_entities(&self, app_handle: &tauri::AppHandle) {
+    let proxy_ids: Vec<String> = crate::proxy_manager::PROXY_MANAGER
+      .get_stored_proxies()
+      .into_iter()
+      .filter(|p| p.sync_enabled)
+      .map(|p| p.id)
+      .collect();
+    for id in proxy_ids {
+      if let Err(e) = self.sync_proxy(&id, Some(app_handle)).await {
+        log::warn!("Failed to back up proxy {id}: {e}");
+      }
+    }
+
+    // Collect ids before awaiting: these managers guard state with a blocking
+    // Mutex whose guard must not be held across an await point.
+    let group_ids: Vec<String> = {
+      let manager = crate::group_manager::GROUP_MANAGER.lock().unwrap();
+      manager
+        .get_all_groups()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|g| g.sync_enabled)
+        .map(|g| g.id)
+        .collect()
+    };
+    for id in group_ids {
+      if let Err(e) = self.sync_group(&id, Some(app_handle)).await {
+        log::warn!("Failed to back up group {id}: {e}");
+      }
+    }
+
+    let vpn_ids: Vec<String> = {
+      let storage = crate::vpn::VPN_STORAGE.lock().unwrap();
+      storage
+        .list_configs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|v| v.sync_enabled)
+        .map(|v| v.id)
+        .collect()
+    };
+    for id in vpn_ids {
+      if let Err(e) = self.sync_vpn(&id, Some(app_handle)).await {
+        log::warn!("Failed to back up VPN {id}: {e}");
+      }
+    }
+
+    let (extension_ids, extension_group_ids): (Vec<String>, Vec<String>) = {
+      let manager = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+      (
+        manager
+          .list_extensions()
+          .unwrap_or_default()
+          .into_iter()
+          .filter(|e| e.sync_enabled)
+          .map(|e| e.id)
+          .collect(),
+        manager
+          .list_groups()
+          .unwrap_or_default()
+          .into_iter()
+          .filter(|g| g.sync_enabled)
+          .map(|g| g.id)
+          .collect(),
+      )
+    };
+    for id in extension_ids {
+      if let Err(e) = self.sync_extension(&id, Some(app_handle)).await {
+        log::warn!("Failed to back up extension {id}: {e}");
+      }
+    }
+    for id in extension_group_ids {
+      if let Err(e) = self.sync_extension_group(&id, Some(app_handle)).await {
+        log::warn!("Failed to back up extension group {id}: {e}");
+      }
+    }
+
+    let scenario_ids: Vec<String> = crate::automation::storage::ScenarioStore::new()
+      .list()
+      .unwrap_or_default()
+      .into_iter()
+      .filter(|s| s.sync_enabled)
+      .map(|s| s.id)
+      .collect();
+    for id in scenario_ids {
+      if let Err(e) = self.sync_automation_scenario(&id, Some(app_handle)).await {
+        log::warn!("Failed to back up scenario {id}: {e}");
+      }
+    }
+  }
+
   pub async fn check_for_missing_synced_entities(
     &self,
     app_handle: &tauri::AppHandle,
   ) -> SyncResult<()> {
     log::info!("Checking for missing synced entities...");
+
+    // Before anything reads automation/, so the blob's scenarios exist as
+    // per-scenario objects and the passes below see one consistent layout.
+    if let Err(e) = self.migrate_legacy_scenarios_object().await {
+      log::warn!("Failed to migrate the legacy automation scenarios object: {e}");
+    }
+
+    self.back_up_local_config_entities(app_handle).await;
 
     // Check for remote proxies not present locally
     let remote_proxies = self.client.list("proxies/").await?;
@@ -3124,8 +3352,35 @@ impl SyncEngine {
       }
     }
 
-    if let Err(e) = self.sync_automation_scenarios(Some(app_handle)).await {
-      log::warn!("Failed to sync automation scenarios: {}", e);
+    // Check for remote scenarios not present locally
+    let remote_scenarios = self.client.list("automation/").await?;
+    for obj in &remote_scenarios.objects {
+      if let Some(scenario_id) = obj
+        .key
+        .strip_prefix("automation/")
+        .and_then(|s| s.strip_suffix(".json"))
+        .filter(|s| !s.contains('/'))
+      {
+        let exists_locally = crate::automation::storage::ScenarioStore::new()
+          .read(scenario_id)
+          .unwrap_or_default()
+          .is_some();
+        if !exists_locally {
+          let tombstone_key = format!("tombstones/automation/{scenario_id}.json");
+          if let Ok(stat) = self.client.stat(&tombstone_key).await {
+            if stat.exists {
+              continue;
+            }
+          }
+          log::info!("Scenario {scenario_id} exists remotely but not locally, downloading...");
+          if let Err(e) = self
+            .download_automation_scenario(scenario_id, Some(app_handle))
+            .await
+          {
+            log::warn!("Failed to download missing scenario {scenario_id}: {e}");
+          }
+        }
+      }
     }
 
     log::info!("Missing synced entities check complete");

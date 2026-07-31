@@ -40,8 +40,11 @@ pub async fn update_automation_scenario(
 }
 
 #[tauri::command]
-pub async fn delete_automation_scenario(scenario_id: String) -> Result<(), String> {
-  ScenarioStore::new().delete(&scenario_id)
+pub async fn delete_automation_scenario(
+  app_handle: tauri::AppHandle,
+  scenario_id: String,
+) -> Result<(), String> {
+  ScenarioStore::new().delete(&app_handle, &scenario_id)
 }
 
 #[tauri::command]

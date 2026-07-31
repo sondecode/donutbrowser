@@ -72,6 +72,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// GitHub repository the self-updater pulls releases from.
+const UPDATE_REPO: &str = "sondecode/donutbrowser";
+
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]
 enum LinuxInstallationMethod {
@@ -220,7 +223,7 @@ impl AppAutoUpdater {
 
       // Build the release page URL
       let release_page_url = format!(
-        "https://github.com/zhom/donutbrowser/releases/tag/{}",
+        "https://github.com/{UPDATE_REPO}/releases/tag/{}",
         latest_release.tag_name
       );
 
@@ -324,7 +327,7 @@ impl AppAutoUpdater {
   async fn fetch_app_releases(
     &self,
   ) -> Result<Vec<AppRelease>, Box<dyn std::error::Error + Send + Sync>> {
-    let url = "https://api.github.com/repos/zhom/donutbrowser/releases?per_page=100";
+    let url = format!("https://api.github.com/repos/{UPDATE_REPO}/releases?per_page=100");
     let response = self
       .client
       .get(url)

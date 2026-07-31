@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "Nenhum link adequado foi encontrado na página.",
     "automationNoEligibleProfiles": "Nenhum dos perfis indicados pode ser automatizado agora.",
     "automationLinkClickFailed": "Os links encontrados na página foram clicados, mas nenhum navegou para lugar algum.",
+    "automationNoReachableLink": "Foram encontrados links na página, mas nenhum pôde ser exibido na tela para clicar.",
     "automationRunStillRunning": "Pare esta execução de automação antes de excluir o histórico.",
     "automationScreenshotNotFound": "Esse arquivo de captura de tela não existe mais."
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "Cancelado"
       },
       "screenshot": "Captura {{index}}",
+      "failureScreenshot": "Captura na falha",
       "expandRun": "Expandir execução",
       "collapseRun": "Recolher execução",
       "deleteRun": "Excluir execução",

@@ -600,6 +600,7 @@ export interface AutomationScenario {
   built_in?: boolean;
   updated_at?: number;
   sync_enabled?: boolean;
+  last_sync?: number;
 }
 
 export type AutomationRunStatus = "running" | "completed" | "cancelled";
@@ -622,6 +623,7 @@ export interface AutomationProfileRun {
   started_at?: number;
   finished_at?: number;
   screenshots: string[];
+  failure_screenshot?: string;
   waiting_until?: number;
 }
 

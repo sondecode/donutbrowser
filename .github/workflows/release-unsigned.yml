@@ -1,0 +1,220 @@
+name: Release (unsigned)
+
+# Fork-friendly release: builds and publishes installers WITHOUT an Apple
+# Developer ID or a Windows code-signing certificate.
+#
+# macOS binaries get an ad-hoc signature (APPLE_SIGNING_IDENTITY: "-") so they
+# run on Apple Silicon, but they are NOT notarized — users must bypass
+# Gatekeeper once. Windows installers are unsigned — SmartScreen shows an
+# "unknown publisher" prompt. Linux artifacts are unaffected.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v0.28.2). Must already exist."
+        required: true
+        type: string
+      prerelease:
+        description: "Mark the GitHub release as a pre-release"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin --verbose"
+            target: "aarch64-apple-darwin"
+          - platform: "macos-latest"
+            args: "--target x86_64-apple-darwin --verbose"
+            target: "x86_64-apple-darwin"
+          - platform: "ubuntu-22.04"
+            args: "--target x86_64-unknown-linux-gnu --verbose"
+            target: "x86_64-unknown-linux-gnu"
+          - platform: "ubuntu-22.04-arm"
+            args: "--target aarch64-unknown-linux-gnu --verbose"
+            target: "aarch64-unknown-linux-gnu"
+          - platform: "windows-latest"
+            args: "--target x86_64-pc-windows-msvc --verbose"
+            target: "x86_64-pc-windows-msvc"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 #v7.0.0
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 #v6.0.9
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f #v6.1.0
+        with:
+          node-version-file: .node-version
+          cache: "pnpm"
+
+      # No manual "chore: version bump" commit needed — the tag is the single
+      # source of truth. tauri.conf.json's version names every bundle artifact,
+      # so without this the assets would be named after the stale version.
+      - name: Set version from tag
+        shell: bash
+        run: node scripts/set-version.mjs "${{ steps.tag.outputs.name }}"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 #master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-22.04-arm'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev pkg-config xdg-utils
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 #v2.9.1
+        with:
+          workdir: ./src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        env:
+          NEXT_PUBLIC_TURNSTILE: ${{ secrets.NEXT_PUBLIC_TURNSTILE }}
+        run: pnpm exec next build
+
+      - name: Verify frontend dist exists
+        shell: bash
+        run: |
+          if [ ! -f "dist/index.html" ]; then
+            echo "Error: dist/index.html not found after build (static export incomplete)"
+            ls -la dist 2>/dev/null || ls -la
+            exit 1
+          fi
+          echo "Frontend dist verified at $(pwd)/dist (index.html present)"
+
+      - name: Build sidecar binaries
+        shell: bash
+        working-directory: ./src-tauri
+        run: |
+          cargo build --bin donut-proxy --target ${{ matrix.target }} --release
+
+      - name: Copy sidecar binaries to Tauri binaries
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          if [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+            cp src-tauri/target/${{ matrix.target }}/release/donut-proxy.exe src-tauri/binaries/donut-proxy-${{ matrix.target }}.exe
+          else
+            cp src-tauri/target/${{ matrix.target }}/release/donut-proxy src-tauri/binaries/donut-proxy-${{ matrix.target }}
+            chmod +x src-tauri/binaries/donut-proxy-${{ matrix.target }}
+          fi
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f #v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_NAME: ${{ steps.tag.outputs.name }}
+          # "-" = ad-hoc signature. No Developer ID, no notarization. Required
+          # on Apple Silicon, where fully unsigned binaries are refused by the
+          # kernel. Deliberately no APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID:
+          # their absence is what makes tauri skip the notarization step.
+          APPLE_SIGNING_IDENTITY: "-"
+          # beforeBuildCommand re-runs `next build` in a subprocess, so this
+          # must be forwarded here too or the inner build inlines an empty
+          # string over the dist produced above.
+          NEXT_PUBLIC_TURNSTILE: ${{ secrets.NEXT_PUBLIC_TURNSTILE }}
+        with:
+          projectPath: ./src-tauri
+          tagName: ${{ steps.tag.outputs.name }}
+          releaseName: "Donut Browser ${{ steps.tag.outputs.name }} (unsigned)"
+          releaseBody: |
+            Unsigned build. See the assets below to download this version.
+
+            **macOS** — the app is ad-hoc signed but not notarized. After
+            copying it to /Applications, run:
+            `xattr -dr com.apple.quarantine /Applications/Donut.app`
+
+            **Windows** — the installer is unsigned; SmartScreen will warn
+            about an unknown publisher. Choose "More info" → "Run anyway".
+          releaseDraft: false
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
+          args: ${{ matrix.args }}
+
+      - name: Create portable Windows ZIP
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          VERSION="${TAG#v}"
+          PORTABLE_DIR="Donut-Portable"
+          mkdir -p "$PORTABLE_DIR"
+
+          cp "src-tauri/target/${{ matrix.target }}/release/donutbrowser.exe" "$PORTABLE_DIR/Donut.exe"
+          cp "src-tauri/target/${{ matrix.target }}/release/donut-proxy.exe" "$PORTABLE_DIR/"
+
+          if [ -f "src-tauri/target/${{ matrix.target }}/release/WebView2Loader.dll" ]; then
+            cp "src-tauri/target/${{ matrix.target }}/release/WebView2Loader.dll" "$PORTABLE_DIR/"
+          fi
+
+          touch "$PORTABLE_DIR/.portable"
+          7z a "Donut_${VERSION}_x64-portable.zip" "$PORTABLE_DIR"
+
+      - name: Upload portable ZIP to release
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          VERSION="${TAG#v}"
+          gh release upload "$TAG" "Donut_${VERSION}_x64-portable.zip" --clobber
+
+  # The in-app updater refuses to install a release it cannot verify against
+  # this file, so it must cover the complete final asset set.
+  checksums:
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Generate and upload SHA256SUMS.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          ASSETS_DIR="/tmp/release-assets"
+          mkdir -p "$ASSETS_DIR"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$ASSETS_DIR"
+          cd "$ASSETS_DIR"
+          sha256sum Donut* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"

@@ -1861,6 +1861,7 @@
     "automationNoLinkFound": "На странице не найдено подходящих ссылок.",
     "automationNoEligibleProfiles": "Ни один из выбранных профилей сейчас нельзя автоматизировать.",
     "automationLinkClickFailed": "Найденные на странице ссылки были нажаты, но ни одна не привела к переходу.",
+    "automationNoReachableLink": "На странице найдены ссылки, но ни одну не удалось прокрутить в видимую область для клика.",
     "automationRunStillRunning": "Остановите этот запуск автоматизации перед удалением истории.",
     "automationScreenshotNotFound": "Этот файл снимка экрана больше не существует."
   },
@@ -2176,6 +2177,7 @@
         "cancelled": "Отменено"
       },
       "screenshot": "Снимок {{index}}",
+      "failureScreenshot": "Снимок в момент ошибки",
       "expandRun": "Развернуть запуск",
       "collapseRun": "Свернуть запуск",
       "deleteRun": "Удалить запуск",

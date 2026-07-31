@@ -44,13 +44,13 @@ pub fn queue_profile_sync_if_eligible(profile: &crate::profile::BrowserProfile) 
   });
 }
 
-pub fn queue_automation_scenarios_sync_if_available() {
+pub fn queue_automation_scenario_sync_if_available(scenario_id: String) {
   if !is_sync_configured() {
     return;
   }
   tauri::async_runtime::spawn(async move {
     if let Some(scheduler) = get_global_scheduler() {
-      scheduler.queue_automation_scenarios_sync().await;
+      scheduler.queue_automation_scenario_sync(scenario_id).await;
     }
   });
 }

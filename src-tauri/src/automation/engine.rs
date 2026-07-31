@@ -52,6 +52,11 @@ pub struct ProfileRun {
   pub finished_at: Option<u64>,
   /// Absolute paths of screenshots captured so far.
   pub screenshots: Vec<String>,
+  /// Absolute path of the capture taken at the moment a step failed, so a run
+  /// can be diagnosed without reproducing it. `None` when the run succeeded,
+  /// was cancelled, or died before the page could be photographed.
+  #[serde(default)]
+  pub failure_screenshot: Option<String>,
   /// Unix seconds at which the active dwell ends, so the UI can count down.
   pub waiting_until: Option<u64>,
 }
@@ -160,6 +165,15 @@ fn with_profile<F: FnOnce(&mut ProfileRun)>(run_id: &str, profile_index: usize, 
       mutate(profile);
     }
   });
+}
+
+/// Which step a profile was on, read back after its run returned so a failure
+/// capture can be named for the step that actually broke.
+fn current_step_index(run_id: &str, profile_index: usize) -> Option<usize> {
+  get_run(run_id)?
+    .profiles
+    .get(profile_index)?
+    .current_step_index
 }
 
 fn cancel_flag(run_id: &str) -> Arc<AtomicBool> {
@@ -382,6 +396,7 @@ pub async fn start_run(
         started_at: None,
         finished_at: None,
         screenshots: Vec::new(),
+        failure_screenshot: None,
         waiting_until: None,
       })
       .collect(),
@@ -518,6 +533,49 @@ async fn run_one_profile(
     .join("automation_screenshots")
     .join(run_id);
 
+  let outcome = run_steps(
+    app_handle,
+    run_id,
+    index,
+    profile,
+    scenario,
+    variables,
+    &ws_url,
+    &screenshot_dir,
+    &mut cursor,
+    cancel,
+  )
+  .await;
+
+  // Photograph the page while it still exists: the caller kills the browser as
+  // soon as this returns, and a cancelled run is a decision, not a failure.
+  if outcome.is_err() && !cancel.load(Ordering::SeqCst) {
+    let step_index = current_step_index(run_id, index).unwrap_or(0);
+    if let Some(path) =
+      capture_failure_screenshot(&ws_url, &screenshot_dir, &profile.name, step_index).await
+    {
+      with_profile(run_id, index, |p| {
+        p.failure_screenshot = Some(path.clone());
+      });
+    }
+  }
+
+  outcome
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_steps(
+  app_handle: &tauri::AppHandle,
+  run_id: &str,
+  index: usize,
+  profile: &BrowserProfile,
+  scenario: &Scenario,
+  variables: &HashMap<String, String>,
+  ws_url: &str,
+  screenshot_dir: &std::path::Path,
+  cursor: &mut PageCursor,
+  cancel: &Arc<AtomicBool>,
+) -> Result<(), String> {
   for (step_index, step) in scenario.steps.iter().enumerate() {
     if cancel.load(Ordering::SeqCst) {
       return Err("cancelled".to_string());
@@ -547,8 +605,8 @@ async fn run_one_profile(
       }
       Step::Screenshot { full_page } => {
         let path = capture_screenshot(
-          &ws_url,
-          &screenshot_dir,
+          ws_url,
+          screenshot_dir,
           &profile.name,
           step_index,
           *full_page,
@@ -567,7 +625,7 @@ async fn run_one_profile(
         }
         with_profile(run_id, index, |p| p.waiting_until = None);
       }
-      other => execute_step(&ws_url, &mut cursor, other, variables, cancel).await?,
+      other => execute_step(ws_url, cursor, other, variables, cancel).await?,
     }
   }
 
@@ -911,6 +969,22 @@ const PICK_LINK_JS: &str = r#"
   const tried = __TRIED__;
   const here = location.hostname;
 
+  const vh = window.innerHeight;
+
+  // The caller can only wheel vertically, so a link parked outside the
+  // horizontal extent of a carousel can never be brought under the cursor —
+  // measuring it later just reports a negative visible width and burns an
+  // attempt. Rule those out here instead.
+  const horizontallyReachable = (a, rect) => {
+    for (let node = a.parentElement; node && node !== document.body; node = node.parentElement) {
+      const overflowX = getComputedStyle(node).overflowX;
+      if (overflowX !== 'auto' && overflowX !== 'scroll') continue;
+      const box = node.getBoundingClientRect();
+      if (rect.right <= box.left + 4 || rect.left >= box.right - 4) return false;
+    }
+    return true;
+  };
+
   const candidates = Array.from(document.querySelectorAll('a[href]')).filter((a) => {
     const href = a.href;
     if (!href.startsWith('http://') && !href.startsWith('https://')) return false;
@@ -926,12 +1000,24 @@ const PICK_LINK_JS: &str = r#"
     if (rect.width < 4 || rect.height < 4) return false;
     const style = getComputedStyle(a);
     if (style.visibility === 'hidden' || style.display === 'none' || style.pointerEvents === 'none') return false;
+    if (!horizontallyReachable(a, rect)) return false;
     return true;
   });
 
   if (candidates.length === 0) return JSON.stringify({ ok: false });
 
-  const link = candidates[Math.floor(Math.random() * candidates.length)];
+  // Picking uniformly across the whole document repeatedly chose links several
+  // thousand pixels away, which the wheeler then failed to reach. Prefer what
+  // is within scrolling distance and keep the far pool only as a fallback, so
+  // the choice stays random without being unreachable.
+  const reach = vh * __REACH_VIEWPORTS__;
+  const near = candidates.filter((a) => {
+    const rect = a.getBoundingClientRect();
+    return rect.top < vh + reach && rect.bottom > -reach;
+  });
+  const pool = near.length > 0 ? near : candidates;
+
+  const link = pool[Math.floor(Math.random() * pool.length)];
   // Keep the journey in one tab; a popup would leave the automated tab behind.
   link.removeAttribute('target');
   window.__donut_link = link;
@@ -1168,6 +1254,13 @@ async fn dismiss_overlay(
 /// serve quick-view anchors that swallow a click without navigating, so the
 /// budget has to tolerate several dead candidates in a row.
 const MAX_LINK_ATTEMPTS: usize = 5;
+/// How many candidates may fail to come under the cursor before the step gives
+/// up. Separate from the click budget: a link that could never be reached was
+/// never clicked, so it must not consume a chance to navigate.
+const MAX_LINK_REACH_ATTEMPTS: usize = 10;
+/// How far beyond the viewport, in viewport heights, the wheeler is expected to
+/// travel. Candidate links further out than this are considered unreachable.
+const REACHABLE_VIEWPORTS: f64 = 3.0;
 /// Cap on wheel bursts spent bringing one link into view.
 const MAX_SCROLL_INTO_VIEW_BURSTS: usize = 12;
 /// Below this much vertical movement between bursts, wheeling has stopped
@@ -1315,8 +1408,10 @@ async fn click_random_link(
   let excludes = lowercased(filter.exclude_patterns);
   let includes = lowercased(filter.include_patterns);
   let mut tried: Vec<String> = Vec::new();
+  let mut clicks = 0usize;
+  let mut unreachable = 0usize;
 
-  for attempt in 1..=MAX_LINK_ATTEMPTS {
+  while clicks < MAX_LINK_ATTEMPTS && unreachable < MAX_LINK_REACH_ATTEMPTS {
     if cancel.load(Ordering::SeqCst) {
       return Err("cancelled".to_string());
     }
@@ -1355,7 +1450,8 @@ async fn click_random_link(
       .replace(
         "__TRIED__",
         &serde_json::to_string(&tried).unwrap_or_else(|_| "[]".to_string()),
-      );
+      )
+      .replace("__REACH_VIEWPORTS__", &REACHABLE_VIEWPORTS.to_string());
 
     let picked = cdp::evaluate(ws_url, &js).await?;
     let picked: serde_json::Value = picked
@@ -1375,6 +1471,7 @@ async fn click_random_link(
     tried.push(href.clone());
 
     let Some(measurement) = wheel_link_into_view(ws_url, cursor, cancel).await? else {
+      unreachable += 1;
       log::info!("[automation] link {href} vanished before it could be clicked");
       continue;
     };
@@ -1382,8 +1479,9 @@ async fn click_random_link(
     if !measurement.clickable {
       // Something is covering it, or it moved out from under us. Another link is
       // a better bet than clicking coordinates we know are wrong.
+      unreachable += 1;
       log::info!(
-        "[automation] link {href} not clickable (visible {:.0}x{:.0}), trying another",
+        "[automation] link {href} not clickable (visible {:.0}x{:.0}), trying another ({unreachable}/{MAX_LINK_REACH_ATTEMPTS})",
         measurement.rect.width,
         measurement.rect.height
       );
@@ -1392,6 +1490,7 @@ async fn click_random_link(
 
     let target = human_mouse::sample_click_point(measurement.rect);
     cursor.click_at(ws_url, target).await?;
+    clicks += 1;
 
     if !wait_for_load {
       return Ok(());
@@ -1401,9 +1500,17 @@ async fn click_random_link(
       return wait_for_ready_state(ws_url, timeout_secs, cancel).await;
     }
 
-    log::info!(
-      "[automation] click on {href} did not navigate (attempt {attempt}/{MAX_LINK_ATTEMPTS})"
+    log::info!("[automation] click on {href} did not navigate ({clicks}/{MAX_LINK_ATTEMPTS})");
+  }
+
+  // Distinguishing these matters: "clicked and nothing happened" and "never got
+  // a link under the cursor at all" call for completely different fixes to a
+  // scenario, and the old wording claimed a click that never occurred.
+  if clicks == 0 {
+    log::warn!(
+      "[automation] gave up after {unreachable} unreachable link(s); none could be scrolled into view"
     );
+    return Err(serde_json::json!({ "code": "AUTOMATION_NO_REACHABLE_LINK" }).to_string());
   }
 
   Err(serde_json::json!({ "code": "AUTOMATION_LINK_CLICK_FAILED" }).to_string())
@@ -1440,6 +1547,64 @@ async fn capture_screenshot(
   step_index: usize,
   full_page: bool,
 ) -> Result<std::path::PathBuf, String> {
+  let bytes = capture_screenshot_png(ws_url, full_page).await?;
+  write_screenshot(dir, &screenshot_stem(profile_name, step_index, None), bytes)
+}
+
+/// Best-effort capture of the page as it looked when a step failed.
+///
+/// Never surfaces its own error: the original failure is what the user needs to
+/// see, and the most common reason a capture fails here is that the page is
+/// already gone — which is itself part of the diagnosis, so it goes to the log.
+async fn capture_failure_screenshot(
+  ws_url: &str,
+  dir: &std::path::Path,
+  profile_name: &str,
+  step_index: usize,
+) -> Option<String> {
+  let stem = screenshot_stem(profile_name, step_index, Some("failure"));
+  let result = match capture_screenshot_png(ws_url, false).await {
+    Ok(bytes) => write_screenshot(dir, &stem, bytes),
+    Err(e) => Err(e),
+  };
+
+  match result {
+    Ok(path) => {
+      log::info!(
+        "[automation] captured failure screenshot for '{profile_name}': {}",
+        path.display()
+      );
+      Some(path.to_string_lossy().to_string())
+    }
+    Err(e) => {
+      log::warn!("[automation] could not capture failure screenshot for '{profile_name}': {e}");
+      None
+    }
+  }
+}
+
+fn screenshot_stem(profile_name: &str, step_index: usize, marker: Option<&str>) -> String {
+  format!(
+    "{}-{}step{}-{}",
+    sanitize_filename(profile_name),
+    marker.map(|m| format!("{m}-")).unwrap_or_default(),
+    step_index + 1,
+    now_secs()
+  )
+}
+
+fn write_screenshot(
+  dir: &std::path::Path,
+  stem: &str,
+  bytes: Vec<u8>,
+) -> Result<std::path::PathBuf, String> {
+  std::fs::create_dir_all(dir).map_err(|e| format!("Failed to create screenshot dir: {e}"))?;
+  let path = dir.join(format!("{stem}.png"));
+  std::fs::write(&path, bytes).map_err(|e| format!("Failed to write screenshot: {e}"))?;
+  Ok(path)
+}
+
+async fn capture_screenshot_png(ws_url: &str, full_page: bool) -> Result<Vec<u8>, String> {
   use base64::Engine;
 
   let mut params = serde_json::json!({ "format": "png" });
@@ -1462,20 +1627,9 @@ async fn capture_screenshot(
     .get("data")
     .and_then(|v| v.as_str())
     .ok_or_else(|| "Screenshot returned no data".to_string())?;
-  let bytes = base64::engine::general_purpose::STANDARD
+  base64::engine::general_purpose::STANDARD
     .decode(data)
-    .map_err(|e| format!("Failed to decode screenshot: {e}"))?;
-
-  std::fs::create_dir_all(dir).map_err(|e| format!("Failed to create screenshot dir: {e}"))?;
-  let path = dir.join(format!(
-    "{}-step{}-{}.png",
-    sanitize_filename(profile_name),
-    step_index + 1,
-    now_secs()
-  ));
-  std::fs::write(&path, bytes).map_err(|e| format!("Failed to write screenshot: {e}"))?;
-
-  Ok(path)
+    .map_err(|e| format!("Failed to decode screenshot: {e}"))
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -1520,6 +1674,17 @@ async fn sleep_cancellable(total: std::time::Duration, cancel: &Arc<AtomicBool>)
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn failure_screenshots_are_distinguishable_from_requested_ones() {
+    let requested = screenshot_stem("Macys 3", 4, None);
+    let failed = screenshot_stem("Macys 3", 4, Some("failure"));
+
+    // Both name the 1-based step, so a run's captures line up with its log.
+    assert!(requested.starts_with("Macys_3-step5-"), "{requested}");
+    assert!(failed.starts_with("Macys_3-failure-step5-"), "{failed}");
+    assert_ne!(requested, failed);
+  }
 
   #[test]
   fn random_in_range_is_inclusive_and_handles_degenerate_ranges() {
@@ -1963,6 +2128,7 @@ mod tests {
           started_at: None,
           finished_at: None,
           screenshots: Vec::new(),
+          failure_screenshot: None,
           waiting_until: None,
         })
         .collect(),
