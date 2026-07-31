@@ -8,18 +8,20 @@
 <br>
 
 <p align="center">
-  <a style="text-decoration: none;" href="https://github.com/zhom/donutbrowser/releases/latest" target="_blank"><img alt="GitHub release" src="https://img.shields.io/github/v/release/zhom/donutbrowser">
+  <a style="text-decoration: none;" href="https://github.com/sondecode/donutbrowser/releases/latest" target="_blank"><img alt="GitHub release" src="https://img.shields.io/github/v/release/sondecode/donutbrowser">
   </a>
-  <a style="text-decoration: none;" href="https://github.com/zhom/donutbrowser/issues" target="_blank">
+  <a style="text-decoration: none;" href="https://github.com/sondecode/donutbrowser/issues" target="_blank">
     <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat" alt="PRs Welcome">
   </a>
-  <a style="text-decoration: none;" href="https://github.com/zhom/donutbrowser/blob/main/LICENSE" target="_blank">
+  <a style="text-decoration: none;" href="https://github.com/sondecode/donutbrowser/blob/main/LICENSE" target="_blank">
     <img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License">
   </a>
-  <a style="text-decoration: none;" href="https://github.com/zhom/donutbrowser/network/members" target="_blank">
-    <img src="https://img.shields.io/github/forks/zhom/donutbrowser?style=social" alt="GitHub forks">
-  </a>
 </p>
+
+> This is a fork of [zhom/donutbrowser](https://github.com/zhom/donutbrowser).
+> Releases here are built for **macOS and Windows only**, and are **not
+> code-signed** — see [Install](#install) for the Gatekeeper and SmartScreen
+> steps.
 
 <img alt="Donut Browser Preview" src="assets/donut-preview.png" />
 
@@ -41,56 +43,38 @@
 
 ## Install
 
-<!-- install-links-start -->
+Grab the assets from the [latest release](https://github.com/sondecode/donutbrowser/releases/latest).
+Filenames carry the version, e.g. `Donut_0.29.0_aarch64.dmg`.
+
 ### macOS
 
-| | Apple Silicon | Intel |
-|---|---|---|
-| **DMG** | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_aarch64.dmg) | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_x64.dmg) |
+| Architecture | Asset |
+|---|---|
+| Apple Silicon | `Donut_<version>_aarch64.dmg` |
+| Intel | `Donut_<version>_x64.dmg` |
 
-Or install via Homebrew:
+These builds are ad-hoc signed but **not notarized**, so Gatekeeper refuses to
+open them on first launch. After dragging the app into `/Applications`, clear
+the quarantine flag once:
 
 ```bash
-brew install --cask donut
+xattr -dr com.apple.quarantine /Applications/Donut.app
 ```
 
 ### Windows
 
-[Download Windows Installer (x64)](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_x64-setup.exe) · [Portable (x64)](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_x64-portable.zip)
+| Format | Asset |
+|---|---|
+| Installer (x64) | `Donut_<version>_x64-setup.exe` |
+| Portable (x64) | `Donut_<version>_x64-portable.zip` |
+
+The installer is **unsigned**, so SmartScreen warns about an unknown publisher.
+Choose **More info** → **Run anyway**.
 
 ### Linux
 
-| Format | x86_64 | ARM64 |
-|---|---|---|
-| **deb** | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_amd64.deb) | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_arm64.deb) |
-| **rpm** | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut-0.28.2-1.x86_64.rpm) | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut-0.28.2-1.aarch64.rpm) |
-| **AppImage** | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_amd64.AppImage) | [Download](https://github.com/zhom/donutbrowser/releases/download/v0.28.2/Donut_0.28.2_aarch64.AppImage) |
-<!-- install-links-end -->
-
-Or install via package manager:
-
-```bash
-curl -fsSL https://donutbrowser.com/install.sh | sh
-```
-
-<details>
-<summary>Troubleshooting AppImage</summary>
-
-If the AppImage segfaults on launch, install **libfuse2** (`sudo apt install libfuse2` / `yay -S libfuse2` / `sudo dnf install fuse-libs`), or bypass FUSE entirely:
-
-```bash
-APPIMAGE_EXTRACT_AND_RUN=1 ./Donut.Browser_x.x.x_amd64.AppImage
-```
-
-If that gives an EGL display error, try adding `WEBKIT_DISABLE_DMABUF_RENDERER=1` or `GDK_BACKEND=x11` to the command above. If issues persist, the **.deb** / **.rpm** packages are a more reliable alternative.
-
-</details>
-
-### Nix
-
-```bash
-nix run github:zhom/donutbrowser#release-start
-```
+Not built by this fork. Use the [upstream releases](https://github.com/zhom/donutbrowser/releases/latest),
+which ship deb, rpm and AppImage packages.
 
 ## Self-Hosting Sync
 
@@ -102,20 +86,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Community
 
-- **Issues**: [GitHub Issues](https://github.com/zhom/donutbrowser/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/zhom/donutbrowser/discussions)
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=zhom%2Fdonutbrowser&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=zhom/donutbrowser&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=zhom/donutbrowser&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=zhom/donutbrowser&type=date&legend=top-left" />
- </picture>
-</a>
+- **Issues with this fork**: [GitHub Issues](https://github.com/sondecode/donutbrowser/issues)
+- **Upstream project**: [Issues](https://github.com/zhom/donutbrowser/issues) · [Discussions](https://github.com/zhom/donutbrowser/discussions)
 
 ## Contributors
+
+Contributors to the upstream project this fork is based on. The list is no
+longer auto-generated here, so it reflects upstream as of the fork point.
 
 <!-- readme: collaborators,contributors -start -->
 <table>

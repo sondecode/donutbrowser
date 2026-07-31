@@ -29,14 +29,6 @@ if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
   process.exit(1);
 }
 
-// RPM's Version field forbids "-", and Tauri feeds this string to the bundler
-// verbatim, so a pre-release tag breaks the rpm target specifically.
-if (version.includes("-")) {
-  console.warn(
-    `Warning: "${version}" has a pre-release suffix; the rpm bundle target will reject it. Use a plain X.Y.Z tag for full-matrix releases.`,
-  );
-}
-
 function replaceInFile(relPath, pattern, replacement) {
   const path = join(ROOT, relPath);
   const before = readFileSync(path, "utf-8");
