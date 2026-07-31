@@ -11,14 +11,18 @@ import {
   LuGithub,
   LuGlobe,
   LuHeart,
+  LuLoaderCircle,
   LuNetwork,
   LuShieldCheck,
   LuTerminal,
+  LuTriangleAlert,
   LuUsers,
 } from "react-icons/lu";
 import { Logo } from "@/components/icons/logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { useBrowserSetup } from "@/hooks/use-browser-setup";
+import { getBrowserDisplayName } from "@/lib/browser-utils";
 
 type WelcomeStep = "intro" | "license" | "setup";
 
@@ -46,6 +50,26 @@ const FEATURES = [
   { key: "welcome.features.items.cookies", Icon: LuCookie },
 ] as const;
 
+function formatBytes(bytes: number): string {
+  if (!(bytes > 0)) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const exponent = Math.min(
+    units.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+  );
+  const value = bytes / 1024 ** exponent;
+  const rounded = exponent === 0 ? value : Math.round(value * 10) / 10;
+  return `${rounded} ${units[exponent]}`;
+}
+
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
+}
+
 export function WelcomeDialog({
   isOpen,
   needsSetup,
@@ -69,6 +93,12 @@ export function WelcomeDialog({
     if (needsSetup) setStep("setup");
     else onComplete();
   };
+
+  // Track the required browser's download + extraction the whole time the
+  // dialog is open, so progress is live by the time the user reaches setup.
+  const setup = useBrowserSetup("wayfern", isOpen);
+  const browserName = getBrowserDisplayName("wayfern");
+
   return (
     <Dialog open={isOpen} onOpenChange={() => {}}>
       <DialogContent
@@ -234,19 +264,151 @@ export function WelcomeDialog({
               transition={panelTransition}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <div className="flex flex-col items-center gap-2">
-                <h2 className="text-2xl font-semibold tracking-tight text-balance">
-                  {t("welcome.ready.title")}
-                </h2>
-                <p className="max-w-[55ch] text-sm/6 text-pretty text-muted-foreground">
-                  {t("welcome.ready.descReady")}
-                </p>
-              </div>
+              {setup.phase === "error" ? (
+                <>
+                  <div className="flex flex-col items-center gap-2">
+                    <h2 className="flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight text-balance text-destructive">
+                      <LuTriangleAlert className="size-5 shrink-0" />
+                      {t("welcome.ready.errorTitle")}
+                    </h2>
+                    <p className="max-w-[55ch] text-sm/6 text-pretty text-muted-foreground">
+                      {setup.error?.stage === "downloading"
+                        ? t("welcome.ready.errorDownload", {
+                            browser: browserName,
+                          })
+                        : setup.error?.stage === "extracting" ||
+                            setup.error?.stage === "verifying"
+                          ? t("welcome.ready.errorExtraction", {
+                              browser: browserName,
+                            })
+                          : t("welcome.ready.errorGeneric", {
+                              browser: browserName,
+                            })}
+                    </p>
+                  </div>
 
-              <Button size="sm" className="gap-1.5" onClick={onComplete}>
-                <LuArrowRight className="size-4 shrink-0" />
-                {t("welcome.ready.cta")}
-              </Button>
+                  {/* No escape hatch here: a browser must finish downloading
+                      before onboarding can complete, so the only action on
+                      failure is to retry. */}
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setup.retry();
+                    }}
+                  >
+                    {t("welcome.ready.retry")}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-col items-center gap-2">
+                    <h2 className="text-2xl font-semibold tracking-tight text-balance">
+                      {t("welcome.ready.title")}
+                    </h2>
+                    <p className="max-w-[55ch] text-sm/6 text-pretty text-muted-foreground">
+                      {setup.phase === "ready"
+                        ? t("welcome.ready.descReady")
+                        : setup.phase === "extracting"
+                          ? t("welcome.ready.descExtracting")
+                          : t("welcome.ready.descDownloading")}
+                    </p>
+                  </div>
+
+                  {setup.phase === "downloading" && (
+                    <div className="flex w-full max-w-xs flex-col gap-2">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <motion.div
+                          className="h-full rounded-full bg-primary"
+                          initial={{ width: 0 }}
+                          animate={{
+                            width: `${Math.max(setup.downloadPercent, 4)}%`,
+                          }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 120,
+                            damping: 24,
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
+                        <span className="inline-flex items-center gap-1.5">
+                          <LuLoaderCircle className="size-4 shrink-0 animate-spin" />
+                          {t("welcome.ready.downloading")}
+                        </span>
+                        <span>{setup.downloadPercent}%</span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
+                        <span>
+                          {setup.totalBytes != null
+                            ? t("welcome.ready.stats", {
+                                downloaded: formatBytes(setup.downloadedBytes),
+                                total: formatBytes(setup.totalBytes),
+                              })
+                            : formatBytes(setup.downloadedBytes)}
+                        </span>
+                        {setup.speedBytesPerSec > 0 && (
+                          <span>
+                            {t("welcome.ready.speed", {
+                              speed: formatBytes(setup.speedBytesPerSec),
+                            })}
+                          </span>
+                        )}
+                        {setup.etaSeconds != null &&
+                          Number.isFinite(setup.etaSeconds) &&
+                          setup.etaSeconds > 0 && (
+                            <span>
+                              {t("welcome.ready.timeLeft", {
+                                time: formatDuration(setup.etaSeconds),
+                              })}
+                            </span>
+                          )}
+                      </div>
+                    </div>
+                  )}
+
+                  {setup.phase === "extracting" && (
+                    <div className="flex w-full max-w-xs flex-col gap-2">
+                      {setup.extractionOvertime ? (
+                        <div className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground tabular-nums">
+                          <LuLoaderCircle className="size-4 shrink-0 animate-spin" />
+                          {t("welcome.ready.almostFinished")}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                            <motion.div
+                              className="h-full rounded-full bg-primary"
+                              initial={{ width: 0 }}
+                              animate={{
+                                width: `${Math.max(setup.extractionPercent, 4)}%`,
+                              }}
+                              transition={{
+                                type: "spring",
+                                stiffness: 120,
+                                damping: 24,
+                              }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
+                            <span className="inline-flex items-center gap-1.5">
+                              <LuLoaderCircle className="size-4 shrink-0 animate-spin" />
+                              {t("welcome.ready.extracting")}
+                            </span>
+                            <span>{setup.extractionPercent}%</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {setup.phase === "ready" && (
+                    <Button size="sm" className="gap-1.5" onClick={onComplete}>
+                      <LuArrowRight className="size-4 shrink-0" />
+                      {t("welcome.ready.cta")}
+                    </Button>
+                  )}
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

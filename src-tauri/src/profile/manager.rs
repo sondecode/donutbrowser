@@ -113,11 +113,6 @@ impl ProfileManager {
           .into(),
       );
     }
-    let browser = if crate::browser::is_chromium_target(browser) {
-      "chromium"
-    } else {
-      browser
-    };
 
     if let Some(config) = wayfern_config.as_ref() {
       config
@@ -147,9 +142,8 @@ impl ProfileManager {
       create_dir_all(&profile_data_dir)?;
     }
 
-    // For Chromium/Wayfern profiles, generate fingerprint during creation.
-    let is_wayfern_target = crate::browser::is_chromium_target(browser);
-    let final_wayfern_config = if is_wayfern_target {
+    // For Wayfern profiles, generate fingerprint during creation
+    let final_wayfern_config = if browser == "wayfern" {
       let mut config = wayfern_config.unwrap_or_else(|| {
         log::info!("Creating default Wayfern config for profile: {name}");
         crate::wayfern_manager::WayfernConfig::default()
@@ -606,9 +600,7 @@ impl ProfileManager {
     let browser = create_browser(browser_type.clone());
     let binaries_dir = self.get_binaries_dir();
 
-    if version != crate::browser::SYSTEM_CHROMIUM_VERSION
-      && !browser.is_version_downloaded(version, &binaries_dir)
-    {
+    if !browser.is_version_downloaded(version, &binaries_dir) {
       return Err(format!("Browser version {version} is not downloaded").into());
     }
 
@@ -1224,8 +1216,8 @@ impl ProfileManager {
         format!("Profile with ID '{profile_id}' not found").into()
       })?;
 
-    if !crate::browser::is_chromium_target(&profile.browser) {
-      return Err("Location fingerprinting only supports Chromium profiles".into());
+    if profile.browser != "wayfern" {
+      return Err("Location fingerprinting only supports Wayfern profiles".into());
     }
 
     let is_running = self
@@ -1547,7 +1539,7 @@ impl ProfileManager {
     profile: &BrowserProfile,
   ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     // Handle Wayfern profiles using WayfernManager-based status checking
-    if crate::browser::is_chromium_target(&profile.browser) {
+    if profile.browser == "wayfern" {
       return self.check_wayfern_status(&app_handle, profile).await;
     }
 
@@ -1589,7 +1581,7 @@ impl ProfileManager {
           // Check if this is the right browser executable first
           let exe_name = process.name().to_string_lossy().to_lowercase();
           let is_correct_browser = match profile.browser.as_str() {
-            browser if crate::browser::is_chromium_target(browser) => {
+            "wayfern" => {
               exe_name.contains("wayfern")
                 || exe_name.contains("chromium")
                 || exe_name.contains("chrome")
@@ -2117,18 +2109,10 @@ pub async fn create_browser_profile_new(
 
   let browser_type =
     BrowserType::from_str(&browser_str).map_err(|e| format!("Invalid browser type: {e}"))?;
-  let normalized_browser = browser_type.as_str().to_string();
-  let version = if crate::browser::is_chromium_target(&normalized_browser) {
-    crate::browser::get_system_chromium_executable_path()
-      .map_err(crate::browser::system_chromium_not_found_error)?;
-    crate::browser::SYSTEM_CHROMIUM_VERSION.to_string()
-  } else {
-    version
-  };
   create_browser_profile_with_group(
     app_handle,
     name,
-    normalized_browser,
+    browser_type.as_str().to_string(),
     version,
     release_type,
     proxy_id,

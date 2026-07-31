@@ -271,9 +271,9 @@
       "stopFollower": "{{leaderName}} profilinin işlemlerini takip ediyor",
       "desyncedTooltip": "Eşitleme {{url}} adresinde başarısız oldu",
       "paidFeature": "Eşitleyici ücretli bir özelliktir",
-      "wayfernOnly": "Yalnızca Chromium profilleri eşitlenebilir",
+      "wayfernOnly": "Yalnızca Wayfern profilleri eşitlenebilir",
       "selectFollowers": "Takipçi Profilleri Seçin",
-      "selectFollowersDesc": "Lider profilin işlemlerini yansıtacak profilleri seçin. Yalnızca durdurulmuş Chromium profilleri seçilebilir.",
+      "selectFollowersDesc": "Lider profilin işlemlerini yansıtacak profilleri seçin. Yalnızca durdurulmuş Wayfern profilleri seçilebilir.",
       "leader": "Lider",
       "follower": "Takipçi",
       "startSession": "Eşitleme Oturumu Başlat",
@@ -339,7 +339,7 @@
     "antiDetect": {
       "title": "Anti-Detect Tarayıcı",
       "description": "Tespit önleme özelliklerine sahip bir tarayıcı seçin",
-      "chromium": "Chromium",
+      "chromium": "Wayfern",
       "badge": "Anti-Detect Tarayıcı"
     },
     "regular": {
@@ -374,7 +374,7 @@
       "upgradeAvailable": "{{browser}} tarayıcısının daha yeni bir sürümü ({{version}}) mevcut."
     },
     "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Chromium tarafından desteklenir",
+    "chromiumSubtitle": "Wayfern tarafından desteklenir",
     "platformUnavailable": "{{browser}} henüz platformunuzda kullanılamıyor.",
     "passwordProtect": {
       "label": "Bu profili parolayla koru",
@@ -726,7 +726,7 @@
     "tokenCopied": "Jeton kopyalandı",
     "mcpEnableLabel": "MCP Sunucusunu Etkinleştir (Model Context Protocol)",
     "mcpEnableDescription": "Claude Desktop gibi yapay zekâ asistanlarının tarayıcıları kontrol etmesine izin verin.",
-    "mcpAcceptTermsFirst": "(Önce Ayarlar'dan Chromium koşullarını kabul edin)",
+    "mcpAcceptTermsFirst": "(Önce Ayarlar'dan Wayfern koşullarını kabul edin)",
     "mcpStarted": "MCP sunucusu {{port}} bağlantı noktasında başlatıldı",
     "mcpStopped": "MCP sunucusu durduruldu",
     "mcpToggleFailed": "MCP sunucusu açılıp kapatılamadı",
@@ -746,7 +746,7 @@
   },
   "config": {
     "wayfern": {
-      "title": "Chromium Yapılandırması",
+      "title": "Wayfern Yapılandırması",
       "fingerprint": {
         "title": "Parmak İzi",
         "randomize": "Başlatmada Rastgele Oluştur",
@@ -799,7 +799,7 @@
       "sourcePlaceholder": "Çerezlerin kopyalanacağı profili seçin",
       "running": "(çalışıyor)",
       "targetProfiles": "Hedef Profiller ({{count}})",
-      "noOtherTargets": "Başka Chromium profili seçilmedi",
+      "noOtherTargets": "Başka Wayfern profili seçilmedi",
       "selectSourceFirst": "Önce bir kaynak profil seçin",
       "selectionStatus": "({{total}} çerezden {{selected}} tanesi seçildi)",
       "searchPlaceholder": "Alan adı veya çerez ara...",
@@ -928,7 +928,7 @@
     "serverError": "Sunucu hatası. Lütfen daha sonra yeniden deneyin.",
     "unknownError": "Bilinmeyen bir hata oluştu. Lütfen yeniden deneyin.",
     "noProfilesForUrl": "Kullanılabilir profil yok. Lütfen URL açmadan önce bir profil oluşturun.",
-    "updateWayfernConfigFailed": "Chromium yapılandırması güncellenemedi: {{error}}",
+    "updateWayfernConfigFailed": "Wayfern yapılandırması güncellenemedi: {{error}}",
     "createProfileFailed": "Profil oluşturulamadı: {{error}}",
     "launchBrowserFailed": "Tarayıcı başlatılamadı: {{error}}",
     "cannotDeleteRunningProfile": "Tarayıcı çalışırken profil silinemez. Lütfen önce tarayıcıyı durdurun.",
@@ -936,7 +936,7 @@
     "renameProfileFailed": "Profil yeniden adlandırılamadı: {{error}}",
     "killBrowserFailed": "Tarayıcı sonlandırılamadı: {{error}}",
     "deleteSelectedProfilesFailed": "Seçili profiller silinemedi: {{error}}",
-    "cookieCopyUnsupportedBrowser": "Çerez kopyalama yalnızca Chromium profilleriyle çalışır",
+    "cookieCopyUnsupportedBrowser": "Çerez kopyalama yalnızca Wayfern profilleriyle çalışır",
     "updateSyncSettingsFailed": "Eşitleme ayarları güncellenemedi",
     "cloneProfileFailed": "Profil klonlanamadı: {{error}}",
     "loadSupportedBrowsersFailed": "Desteklenen tarayıcılar yüklenemedi",
@@ -953,7 +953,7 @@
     "setProfilePasswordFailed": "Profil parolası ayarlanamadı: {{error}}"
   },
   "browser": {
-    "wayfern": "Chromium"
+    "wayfern": "Wayfern"
   },
   "fingerprint": {
     "crossOsWarning": "Farklı bir işletim sistemi için parmak izi taklidi daha az güvenilirdir; çünkü altta yatan tüm bileşenleri kusursuz biçimde taklit etmek imkânsızdır. Dikkatli kullanın.",
@@ -1234,7 +1234,7 @@
       "cannotWhileRunning": "Parolasını değiştirmeden önce profili durdurun."
     },
     "fingerprint": {
-      "notSupported": "Parmak izi düzenleme yalnızca Chromium profillerinde kullanılabilir.",
+      "notSupported": "Parmak izi düzenleme yalnızca Wayfern profillerinde kullanılabilir.",
       "lockedTitle": "Parmak izini görüntülemek ve düzenlemek bir Pro özelliğidir",
       "lockedDescription": "Cihaz bilgileriniz her profilde korunur. Bir profilin parmak izini görüntülemek ve düzenlemek etkin bir ücretli plan gerektirir."
     },
@@ -1577,8 +1577,8 @@
     "createButton": "Oluştur"
   },
   "wayfernTerms": {
-    "title": "Chromium Şartlar ve Koşulları",
-    "description": "Donut Browser'ı kullanmadan önce Chromium'ün Şartlar ve Koşullarını okuyup kabul etmelisiniz.",
+    "title": "Wayfern Şartlar ve Koşulları",
+    "description": "Donut Browser'ı kullanmadan önce Wayfern'ün Şartlar ve Koşullarını okuyup kabul etmelisiniz.",
     "reviewLabel": "Lütfen Şartlar ve Koşulları şu adresten inceleyin:",
     "agreeNotice": "\"Kabul Ediyorum\"a tıklayarak bu şartlara bağlı kalmayı kabul edersiniz.",
     "acceptButton": "Kabul Ediyorum",
@@ -1839,12 +1839,11 @@
     "proxyNotWorking": "Seçilen proxy çalışmıyor, bu nedenle profil oluşturulmadı.",
     "proxyPaymentRequired": "Seçilen proxy ödeme gerektiriyor (402) — aboneliği sona ermiş olabilir — bu nedenle profil oluşturulmadı.",
     "vpnNotWorking": "Seçilen VPN çalışmıyor, bu nedenle profil oluşturulmadı.",
-    "camoufoxImportDeprecated": "Bu profil türünün içe aktarılması artık desteklenmiyor. Lütfen bunun yerine Chromium kullanın.",
+    "camoufoxImportDeprecated": "Bu profil türünün içe aktarılması artık desteklenmiyor. Lütfen bunun yerine Wayfern kullanın.",
     "updateChecksumsUnavailable": "{{version}} güncellemesi doğrulanamadı çünkü sağlama toplamı dosyası alınamadı. Güncelleme yüklenmedi; daha sonra yeniden denenecek.",
     "updateChecksumMismatch": "İndirilen güncelleme dosyası {{file}} sağlama toplamı doğrulamasını geçemedi ve silindi. Lütfen yeniden deneyin.",
     "nameCannotBeEmpty": "Ad boş olamaz",
-    "wayfernVersionNotAvailable": "Chromium {{requested}} sürümü indirilemiyor. Güncel sürüm: {{current}}.",
-    "systemChromiumNotFound": "Chromium bulunamadı. Chromium/Chrome yükleyin veya DONUT_CHROMIUM_PATH değerini ayarlayın.",
+    "wayfernVersionNotAvailable": "Wayfern {{requested}} sürümü indirilemiyor. Güncel sürüm: {{current}}.",
     "automationScenarioNotFound": "Bu otomasyon senaryosu artık mevcut değil.",
     "automationScenarioAlreadyExists": "\"{{name}}\" adlı bir senaryo zaten var.",
     "automationScenarioEmpty": "Bir senaryoda en az bir adım olmalı.",
@@ -1997,7 +1996,7 @@
     "steps": {
       "createProfile": {
         "title": "İlk profilinizi oluşturun",
-        "content": "İlk profilinizi oluşturmak için buraya tıklayın. Tarayıcı olarak Chromium'ü seçin — önerilen, parmak izi korumalı Chromium."
+        "content": "İlk profilinizi oluşturmak için buraya tıklayın. Tarayıcı olarak Wayfern'ü seçin — önerilen, parmak izi korumalı Chromium."
       },
       "dnsBlocking": {
         "title": "DNS engelleme",
@@ -2030,7 +2029,7 @@
     },
     "ready": {
       "title": "Her şey hazırlanıyor",
-      "descDownloading": "İlk tarayıcınız (Chromium) indiriliyor. Bu tek seferlik kurulum arka planda çalışır — biraz bekleyin.",
+      "descDownloading": "İlk tarayıcınız (Wayfern) indiriliyor. Bu tek seferlik kurulum arka planda çalışır — biraz bekleyin.",
       "descReady": "Tarayıcınız hazır. Hadi ilk profilinizi oluşturalım.",
       "cta": "İlk profilimi oluştur",
       "downloading": "İndiriliyor…",
@@ -2083,7 +2082,7 @@
     "unknownError": "Bilinmeyen bir hata oluştu"
   },
   "cookieCopy": {
-    "noOtherTargets": "Başka Chromium profili seçilmedi"
+    "noOtherTargets": "Başka Wayfern profili seçilmedi"
   },
   "automation": {
     "title": "Otomasyon",

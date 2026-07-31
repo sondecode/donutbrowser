@@ -42,6 +42,7 @@ import { SyncConfigDialog } from "@/components/sync-config-dialog";
 import { SyncFollowerDialog } from "@/components/sync-follower-dialog";
 import { ThankYouDialog } from "@/components/thank-you-dialog";
 import { WayfernConfigDialog } from "@/components/wayfern-config-dialog";
+import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
 import { WindowResizeWarningDialog } from "@/components/window-resize-warning-dialog";
 import { useAppUpdateNotifications } from "@/hooks/use-app-update-notifications";
@@ -51,6 +52,8 @@ import { useGroupEvents } from "@/hooks/use-group-events";
 import { useProfileEvents } from "@/hooks/use-profile-events";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useSyncSessions } from "@/hooks/use-sync-session";
+import { useUpdateNotifications } from "@/hooks/use-update-notifications";
+import { useVersionUpdater } from "@/hooks/use-version-updater";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
 import { useWayfernTerms } from "@/hooks/use-wayfern-terms";
 import { translateBackendError } from "@/lib/backend-errors";
@@ -73,10 +76,7 @@ import {
 } from "@/lib/toast-utils";
 import type { BrowserProfile, SyncSettings, WayfernConfig } from "@/types";
 
-type BrowserTypeString = "chromium" | "wayfern";
-
-const isChromiumProfileBrowser = (browser: string) =>
-  ["chromium", "wayfern"].includes(browser.trim().toLowerCase());
+type BrowserTypeString = "wayfern";
 
 interface PendingUrl {
   id: string;
@@ -85,6 +85,8 @@ interface PendingUrl {
 
 export default function Home() {
   const { t } = useTranslation();
+  // Mount global version update listener/toasts
+  useVersionUpdater();
 
   // Use the new profile events hook for centralized profile management
   const {
@@ -198,7 +200,11 @@ export default function Home() {
     useState<BrowserProfile | null>(null);
 
   // Wayfern terms and commercial trial hooks
-  const { termsAccepted, isLoading: termsLoading } = useWayfernTerms();
+  const {
+    termsAccepted,
+    isLoading: termsLoading,
+    checkTerms,
+  } = useWayfernTerms();
   const {
     trialStatus,
     hasAcknowledged: trialAcknowledged,
@@ -496,23 +502,69 @@ export default function Home() {
     };
   }, [runShortcut, selectGroupByDigit, orderedGroupTargets.length]);
 
-  // Check for the optional GeoIP database. Browser engines are resolved from
-  // the system Chromium installation, so startup no longer downloads binaries.
+  // Check for missing binaries and offer to download them
   const checkMissingBinaries = useCallback(async () => {
     try {
+      const missingBinaries = await invoke<[string, string, string][]>(
+        "check_missing_binaries",
+      );
+
+      // Also check for missing GeoIP database
       const missingGeoIP = await invoke<boolean>(
         "check_missing_geoip_database",
       );
 
-      if (missingGeoIP) {
-        console.log("Found missing GeoIP database");
-        console.log("Downloading missing GeoIP database");
+      if (missingBinaries.length > 0 || missingGeoIP) {
+        if (missingBinaries.length > 0) {
+          console.log("Found missing binaries:", missingBinaries);
+        }
+        if (missingGeoIP) {
+          console.log("Found missing GeoIP database");
+        }
+
+        // Group missing binaries by browser type to avoid concurrent downloads
+        const browserMap = new Map<string, string[]>();
+        for (const [profileName, browser, version] of missingBinaries) {
+          if (!browserMap.has(browser)) {
+            browserMap.set(browser, []);
+          }
+          const versions = browserMap.get(browser);
+          if (versions) {
+            versions.push(`${version} (for ${profileName})`);
+          }
+        }
+
+        // Show a toast notification about missing binaries and auto-download them
+        let missingList = Array.from(browserMap.entries())
+          .map(([browser, versions]) => `${browser}: ${versions.join(", ")}`)
+          .join(", ");
+
+        if (missingGeoIP) {
+          if (missingList) {
+            missingList += ", GeoIP database";
+          } else {
+            missingList = "GeoIP database";
+          }
+        }
+
+        console.log(`Downloading missing components: ${missingList}`);
 
         try {
-          await invoke("download_geoip_database");
-          console.log("Successfully downloaded GeoIP database");
+          // Download missing binaries and GeoIP database sequentially to prevent conflicts
+          const downloaded = await invoke<string[]>(
+            "ensure_all_binaries_exist",
+          );
+          if (downloaded.length > 0) {
+            console.log(
+              "Successfully downloaded missing components:",
+              downloaded,
+            );
+          }
         } catch (downloadError) {
-          console.error("Failed to download GeoIP database:", downloadError);
+          console.error(
+            "Failed to download missing components:",
+            downloadError,
+          );
         }
       }
     } catch (err: unknown) {
@@ -552,7 +604,9 @@ export default function Home() {
     [processingUrls],
   );
 
-  const isUpdating = useCallback((_browser: string) => false, []);
+  // Auto-update functionality - use the existing hook for compatibility
+  const updateNotifications = useUpdateNotifications();
+  const { checkForUpdates, isUpdating } = updateNotifications;
 
   useAppUpdateNotifications();
 
@@ -786,7 +840,7 @@ export default function Home() {
       }
 
       // Show one-time warning about window resizing for fingerprinted browsers
-      if (isChromiumProfileBrowser(profile.browser)) {
+      if (profile.browser === "wayfern") {
         try {
           const dismissed = await invoke<boolean>(
             "get_window_resize_warning_dismissed",
@@ -997,8 +1051,7 @@ export default function Home() {
   const handleBulkCopyCookies = useCallback(() => {
     if (selectedProfiles.length === 0) return;
     const eligibleProfiles = profiles.filter(
-      (p) =>
-        selectedProfiles.includes(p.id) && isChromiumProfileBrowser(p.browser),
+      (p) => selectedProfiles.includes(p.id) && p.browser === "wayfern",
     );
     if (eligibleProfiles.length === 0) {
       showErrorToast(t("errors.cookieCopyUnsupportedBrowser"));
@@ -1245,16 +1298,33 @@ export default function Home() {
     // Check for startup URLs (when app was launched as default browser)
     void checkCurrentUrl();
 
+    // Set up periodic update checks (every 30 minutes)
+    const updateInterval = setInterval(
+      () => {
+        void checkForUpdates();
+      },
+      30 * 60 * 1000,
+    );
+
     // Check for missing binaries after initial profile load
     if (!profilesLoading && profiles.length > 0) {
       void checkMissingBinaries();
     }
 
+    // Proactively download Wayfern if not already available
+    if (!profilesLoading) {
+      void invoke("ensure_active_browsers_downloaded").catch((err: unknown) => {
+        console.error("Failed to auto-download browsers:", err);
+      });
+    }
+
     return () => {
       disposed = true;
+      clearInterval(updateInterval);
       cleanup?.();
     };
   }, [
+    checkForUpdates,
     listenForUrlEvents,
     checkCurrentUrl,
     checkMissingBinaries,
@@ -1363,6 +1433,25 @@ export default function Home() {
       unlistenWayfernBlocked?.();
     };
   }, [t]);
+
+  // Re-check Wayfern terms when a browser download completes
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      unlisten = await listen<{ stage: string }>(
+        "download-progress",
+        (event) => {
+          if (event.payload.stage === "completed") {
+            void checkTerms();
+          }
+        },
+      );
+    };
+    void setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [checkTerms]);
 
   // Check self-hosted sync config on mount and when cloud user changes
   useEffect(() => {
@@ -1876,6 +1965,12 @@ export default function Home() {
         onSyncConfigOpen={() => {
           setSyncConfigDialogOpen(true);
         }}
+      />
+
+      {/* Wayfern Terms and Conditions Dialog - shown if terms not accepted */}
+      <WayfernTermsDialog
+        isOpen={!termsLoading && termsAccepted === false}
+        onAccepted={checkTerms}
       />
 
       {/* Commercial Trial Modal - shown once when trial expires (skip for paid users) */}

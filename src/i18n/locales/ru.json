@@ -271,9 +271,9 @@
       "stopFollower": "Повторяет действия {{leaderName}}",
       "desyncedTooltip": "Синхронизация не удалась на {{url}}",
       "paidFeature": "Синхронизатор — платная функция",
-      "wayfernOnly": "Синхронизировать можно только профили Chromium",
+      "wayfernOnly": "Синхронизировать можно только профили Wayfern",
       "selectFollowers": "Выберите профили-последователи",
-      "selectFollowersDesc": "Выберите профили, которые будут повторять действия профиля-лидера. Можно выбрать только остановленные профили Chromium.",
+      "selectFollowersDesc": "Выберите профили, которые будут повторять действия профиля-лидера. Можно выбрать только остановленные профили Wayfern.",
       "leader": "Лидер",
       "follower": "Последователь",
       "startSession": "Начать сессию синхронизации",
@@ -339,7 +339,7 @@
     "antiDetect": {
       "title": "Антидетект браузер",
       "description": "Выберите браузер с возможностями защиты от обнаружения",
-      "chromium": "Chromium",
+      "chromium": "Wayfern",
       "badge": "Антидетект браузер"
     },
     "regular": {
@@ -374,7 +374,7 @@
       "upgradeAvailable": "Доступна новая версия ({{version}}) {{browser}}."
     },
     "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "На базе Chromium",
+    "chromiumSubtitle": "На базе Wayfern",
     "platformUnavailable": "{{browser}} пока недоступен на вашей платформе.",
     "passwordProtect": {
       "label": "Защитить этот профиль паролем",
@@ -726,7 +726,7 @@
     "tokenCopied": "Токен скопирован",
     "mcpEnableLabel": "Включить MCP сервер (Model Context Protocol)",
     "mcpEnableDescription": "Позволяет ИИ-ассистентам, таким как Claude Desktop, управлять браузерами.",
-    "mcpAcceptTermsFirst": "(Сначала примите условия Chromium в Настройках)",
+    "mcpAcceptTermsFirst": "(Сначала примите условия Wayfern в Настройках)",
     "mcpStarted": "MCP сервер запущен на порту {{port}}",
     "mcpStopped": "MCP сервер остановлен",
     "mcpToggleFailed": "Не удалось переключить MCP сервер",
@@ -746,7 +746,7 @@
   },
   "config": {
     "wayfern": {
-      "title": "Настройки Chromium",
+      "title": "Настройки Wayfern",
       "fingerprint": {
         "title": "Отпечаток",
         "randomize": "Случайный при запуске",
@@ -799,7 +799,7 @@
       "sourcePlaceholder": "Выберите профиль для копирования cookies",
       "running": "(запущен)",
       "targetProfiles": "Целевые профили ({{count}})",
-      "noOtherTargets": "Других выбранных Chromium профилей нет",
+      "noOtherTargets": "Других выбранных Wayfern профилей нет",
       "selectSourceFirst": "Сначала выберите исходный профиль",
       "selectionStatus": "(выбрано {{selected}} из {{total}})",
       "searchPlaceholder": "Поиск доменов или cookies...",
@@ -928,7 +928,7 @@
     "serverError": "Ошибка сервера. Попробуйте позже.",
     "unknownError": "Произошла неизвестная ошибка. Попробуйте снова.",
     "noProfilesForUrl": "Нет доступных профилей. Сначала создайте профиль, прежде чем открывать URL.",
-    "updateWayfernConfigFailed": "Не удалось обновить настройки chromium: {{error}}",
+    "updateWayfernConfigFailed": "Не удалось обновить настройки wayfern: {{error}}",
     "createProfileFailed": "Не удалось создать профиль: {{error}}",
     "launchBrowserFailed": "Не удалось запустить браузер: {{error}}",
     "cannotDeleteRunningProfile": "Невозможно удалить профиль, пока браузер запущен. Сначала остановите браузер.",
@@ -936,7 +936,7 @@
     "renameProfileFailed": "Не удалось переименовать профиль: {{error}}",
     "killBrowserFailed": "Не удалось остановить браузер: {{error}}",
     "deleteSelectedProfilesFailed": "Не удалось удалить выбранные профили: {{error}}",
-    "cookieCopyUnsupportedBrowser": "Копирование cookies работает только с профилями Chromium",
+    "cookieCopyUnsupportedBrowser": "Копирование cookies работает только с профилями Wayfern",
     "updateSyncSettingsFailed": "Не удалось обновить параметры синхронизации",
     "cloneProfileFailed": "Не удалось клонировать профиль: {{error}}",
     "loadSupportedBrowsersFailed": "Не удалось загрузить поддерживаемые браузеры",
@@ -953,7 +953,7 @@
     "setProfilePasswordFailed": "Не удалось установить пароль профиля: {{error}}"
   },
   "browser": {
-    "wayfern": "Chromium"
+    "wayfern": "Wayfern"
   },
   "fingerprint": {
     "crossOsWarning": "Подмена отпечатка для другой операционной системы менее надёжна, так как невозможно идеально имитировать все базовые компоненты. Используйте с осторожностью.",
@@ -1234,7 +1234,7 @@
       "cannotWhileRunning": "Остановите профиль перед сменой пароля."
     },
     "fingerprint": {
-      "notSupported": "Редактирование отпечатков доступно только для профилей Chromium.",
+      "notSupported": "Редактирование отпечатков доступно только для профилей Wayfern.",
       "lockedTitle": "Просмотр и редактирование отпечатка — функция Pro",
       "lockedDescription": "Информация о вашем устройстве защищена в каждом профиле. Для просмотра и редактирования отпечатка профиля требуется активный платный план."
     },
@@ -1577,8 +1577,8 @@
     "createButton": "Создать"
   },
   "wayfernTerms": {
-    "title": "Условия использования Chromium",
-    "description": "Прежде чем использовать Donut Browser, необходимо прочитать и согласиться с Условиями использования Chromium.",
+    "title": "Условия использования Wayfern",
+    "description": "Прежде чем использовать Donut Browser, необходимо прочитать и согласиться с Условиями использования Wayfern.",
     "reviewLabel": "Пожалуйста, ознакомьтесь с Условиями использования по адресу:",
     "agreeNotice": "Нажимая «Я принимаю», вы соглашаетесь с этими условиями.",
     "acceptButton": "Я принимаю",
@@ -1839,12 +1839,11 @@
     "proxyNotWorking": "Выбранный прокси не работает, поэтому профиль не создан.",
     "proxyPaymentRequired": "Выбранный прокси требует оплаты (402) — возможно, его подписка истекла — поэтому профиль не создан.",
     "vpnNotWorking": "Выбранный VPN не работает, поэтому профиль не создан.",
-    "camoufoxImportDeprecated": "Импорт профилей этого типа больше не поддерживается. Используйте Chromium.",
+    "camoufoxImportDeprecated": "Импорт профилей этого типа больше не поддерживается. Используйте Wayfern.",
     "updateChecksumsUnavailable": "Не удалось проверить обновление {{version}}: файл контрольных сумм не удалось получить. Обновление не было установлено; попытка будет повторена позже.",
     "updateChecksumMismatch": "Загруженный файл обновления {{file}} не прошёл проверку контрольной суммы и был удалён. Попробуйте ещё раз.",
     "nameCannotBeEmpty": "Имя не может быть пустым",
-    "wayfernVersionNotAvailable": "Версия Chromium {{requested}} недоступна для загрузки. Текущая версия — {{current}}.",
-    "systemChromiumNotFound": "Chromium не найден. Установите Chromium/Chrome или задайте DONUT_CHROMIUM_PATH.",
+    "wayfernVersionNotAvailable": "Версия Wayfern {{requested}} недоступна для загрузки. Текущая версия — {{current}}.",
     "automationScenarioNotFound": "Этот сценарий автоматизации больше не существует.",
     "automationScenarioAlreadyExists": "Сценарий с названием «{{name}}» уже существует.",
     "automationScenarioEmpty": "В сценарии должен быть хотя бы один шаг.",
@@ -1997,7 +1996,7 @@
     "steps": {
       "createProfile": {
         "title": "Создайте первый профиль",
-        "content": "Нажмите здесь, чтобы создать первый профиль. Выберите Chromium в качестве браузера — рекомендуемый Chromium с защитой от цифровых отпечатков."
+        "content": "Нажмите здесь, чтобы создать первый профиль. Выберите Wayfern в качестве браузера — рекомендуемый Chromium с защитой от цифровых отпечатков."
       },
       "dnsBlocking": {
         "title": "DNS-блокировка",
@@ -2030,7 +2029,7 @@
     },
     "ready": {
       "title": "Настраиваем",
-      "descDownloading": "Загружаем ваш первый браузер (Chromium). Эта однократная настройка выполняется в фоне — подождите немного.",
+      "descDownloading": "Загружаем ваш первый браузер (Wayfern). Эта однократная настройка выполняется в фоне — подождите немного.",
       "descReady": "Браузер готов. Давайте создадим ваш первый профиль.",
       "cta": "Создать первый профиль",
       "downloading": "Загрузка…",
@@ -2083,7 +2082,7 @@
     "unknownError": "Произошла неизвестная ошибка"
   },
   "cookieCopy": {
-    "noOtherTargets": "Других выбранных Chromium профилей нет"
+    "noOtherTargets": "Других выбранных Wayfern профилей нет"
   },
   "automation": {
     "title": "Автоматизация",

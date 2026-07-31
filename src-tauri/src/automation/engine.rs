@@ -303,7 +303,7 @@ pub async fn start_run(
         serde_json::json!({ "code": "PROFILE_NOT_FOUND", "params": { "id": id } }).to_string()
       })?;
 
-    if !crate::browser::is_chromium_target(&profile.browser) {
+    if profile.browser != "wayfern" {
       return Err(
         serde_json::json!({
           "code": "AUTOMATION_PROFILE_NOT_CHROMIUM",
@@ -341,7 +341,7 @@ pub async fn start_run(
         continue;
       }
       // Skip rather than fail: the caller targeted the group, not this member.
-      if !crate::browser::is_chromium_target(&profile.browser) || profile.process_id.is_some() {
+      if profile.browser != "wayfern" || profile.process_id.is_some() {
         log::info!(
           "[automation] skipping '{}' from group {group_id} (not automatable right now)",
           profile.name

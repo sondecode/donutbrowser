@@ -304,8 +304,8 @@ impl BrowserRunner {
     remote_debugging_port: Option<u16>,
     headless: bool,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
-    // Handle Chromium/Wayfern profiles using WayfernManager.
-    if crate::browser::is_chromium_target(&profile.browser) {
+    // Handle Wayfern profiles using WayfernManager
+    if profile.browser == "wayfern" {
       // Get or create wayfern config
       let mut wayfern_config = profile.wayfern_config.clone().unwrap_or_else(|| {
         log::info!(
@@ -665,7 +665,7 @@ impl BrowserRunner {
     _internal_proxy_settings: Option<&ProxySettings>,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Handle Wayfern profiles using WayfernManager
-    if crate::browser::is_chromium_target(&profile.browser) {
+    if profile.browser == "wayfern" {
       let profiles_dir = self.profile_manager.get_profiles_dir();
       let profile_data_path =
         crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
@@ -876,7 +876,7 @@ impl BrowserRunner {
     profile: &BrowserProfile,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Handle Wayfern profiles using WayfernManager
-    if crate::browser::is_chromium_target(&profile.browser) {
+    if profile.browser == "wayfern" {
       let profiles_dir = self.profile_manager.get_profiles_dir();
       let profile_data_path =
         crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
@@ -1105,58 +1105,56 @@ impl BrowserRunner {
         .save_process_info(&updated_profile)
         .map_err(|e| format!("Failed to update profile: {e}"))?;
 
-      if profile.version != crate::browser::SYSTEM_CHROMIUM_VERSION {
-        // Check for pending updates and apply them for legacy bundled-browser profiles.
-        if let Ok(Some(pending_update)) = self
-          .auto_updater
-          .get_pending_update(&profile.browser, &profile.version)
-        {
-          log::info!(
-            "Found pending update for Wayfern profile {}: {} -> {}",
-            profile.name,
-            profile.version,
-            pending_update.new_version
-          );
+      // Check for pending updates and apply them
+      if let Ok(Some(pending_update)) = self
+        .auto_updater
+        .get_pending_update(&profile.browser, &profile.version)
+      {
+        log::info!(
+          "Found pending update for Wayfern profile {}: {} -> {}",
+          profile.name,
+          profile.version,
+          pending_update.new_version
+        );
 
-          match self.profile_manager.update_profile_version(
-            &app_handle,
-            &profile.id.to_string(),
-            &pending_update.new_version,
-          ) {
-            Ok(updated_profile_after_update) => {
-              log::info!(
-                "Successfully updated Wayfern profile {} from version {} to {}",
-                profile.name,
-                profile.version,
-                pending_update.new_version
-              );
-              updated_profile = updated_profile_after_update;
+        match self.profile_manager.update_profile_version(
+          &app_handle,
+          &profile.id.to_string(),
+          &pending_update.new_version,
+        ) {
+          Ok(updated_profile_after_update) => {
+            log::info!(
+              "Successfully updated Wayfern profile {} from version {} to {}",
+              profile.name,
+              profile.version,
+              pending_update.new_version
+            );
+            updated_profile = updated_profile_after_update;
 
-              if let Err(e) = self
-                .auto_updater
-                .dismiss_update_notification(&pending_update.id)
-              {
-                log::warn!("Warning: Failed to dismiss pending update notification: {e}");
-              }
+            if let Err(e) = self
+              .auto_updater
+              .dismiss_update_notification(&pending_update.id)
+            {
+              log::warn!("Warning: Failed to dismiss pending update notification: {e}");
             }
-            Err(e) => {
-              log::error!(
-                "Failed to apply pending update for Wayfern profile {}: {}",
-                profile.name,
-                e
-              );
-            }
+          }
+          Err(e) => {
+            log::error!(
+              "Failed to apply pending update for Wayfern profile {}: {}",
+              profile.name,
+              e
+            );
           }
         }
+      }
 
-        // If no pending update was applied, check if a newer installed version exists.
-        if updated_profile.version == profile.version {
-          if let Some(p) = self
-            .auto_updater
-            .update_profile_to_latest_installed(&app_handle, &updated_profile)
-          {
-            updated_profile = p;
-          }
+      // If no pending update was applied, check if a newer installed version exists
+      if updated_profile.version == profile.version {
+        if let Some(p) = self
+          .auto_updater
+          .update_profile_to_latest_installed(&app_handle, &updated_profile)
+        {
+          updated_profile = p;
         }
       }
 
@@ -1206,17 +1204,15 @@ impl BrowserRunner {
         profile.id
       );
 
-      if profile.version != crate::browser::SYSTEM_CHROMIUM_VERSION {
-        // Consolidate legacy bundled browser versions after stopping a browser.
-        if let Ok(consolidated) = self
-          .downloaded_browsers_registry
-          .consolidate_browser_versions(&app_handle)
-        {
-          if !consolidated.is_empty() {
-            log::info!("Post-stop version consolidation results:");
-            for action in &consolidated {
-              log::info!("  {action}");
-            }
+      // Consolidate browser versions after stopping a browser
+      if let Ok(consolidated) = self
+        .downloaded_browsers_registry
+        .consolidate_browser_versions(&app_handle)
+      {
+        if !consolidated.is_empty() {
+          log::info!("Post-stop version consolidation results:");
+          for action in &consolidated {
+            log::info!("  {action}");
           }
         }
       }
@@ -1226,7 +1222,7 @@ impl BrowserRunner {
 
     Err(
       format!(
-        "Unsupported browser '{}' for profile '{}' — only Chromium is supported",
+        "Unsupported browser '{}' for profile '{}' — only Wayfern is supported",
         profile.browser, profile.name
       )
       .into(),
@@ -1411,11 +1407,6 @@ pub async fn launch_browser_profile_impl(
 
 #[tauri::command]
 pub fn check_browser_exists(browser_str: String, version: String) -> bool {
-  if crate::browser::is_chromium_target(&browser_str) {
-    let _ = version;
-    return crate::browser::get_system_chromium_executable_path().is_ok();
-  }
-
   // This is an alias for is_browser_downloaded to provide clearer semantics for auto-updates
   let runner = BrowserRunner::instance();
   runner

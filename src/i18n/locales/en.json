@@ -271,9 +271,9 @@
       "stopFollower": "Following actions of {{leaderName}}",
       "desyncedTooltip": "Synchronization failed at {{url}}",
       "paidFeature": "Synchronizer is a paid feature",
-      "wayfernOnly": "Only Chromium profiles can be synchronized",
+      "wayfernOnly": "Only Wayfern profiles can be synchronized",
       "selectFollowers": "Select Follower Profiles",
-      "selectFollowersDesc": "Choose profiles that will mirror the actions of the leader profile. Only stopped Chromium profiles can be selected.",
+      "selectFollowersDesc": "Choose profiles that will mirror the actions of the leader profile. Only stopped Wayfern profiles can be selected.",
       "leader": "Leader",
       "follower": "Follower",
       "startSession": "Start Sync Session",
@@ -339,7 +339,7 @@
     "antiDetect": {
       "title": "Anti-Detect Browser",
       "description": "Choose a browser with anti-detection capabilities",
-      "chromium": "Chromium",
+      "chromium": "Wayfern",
       "badge": "Anti-Detect Browser"
     },
     "regular": {
@@ -374,7 +374,7 @@
       "upgradeAvailable": "A newer version ({{version}}) of {{browser}} is available."
     },
     "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Powered by Chromium",
+    "chromiumSubtitle": "Powered by Wayfern",
     "platformUnavailable": "{{browser}} is not available on your platform yet.",
     "passwordProtect": {
       "label": "Password protect this profile",
@@ -726,7 +726,7 @@
     "tokenCopied": "Token copied",
     "mcpEnableLabel": "Enable MCP Server (Model Context Protocol)",
     "mcpEnableDescription": "Allow AI assistants like Claude Desktop to control browsers.",
-    "mcpAcceptTermsFirst": "(Accept Chromium terms in Settings first)",
+    "mcpAcceptTermsFirst": "(Accept Wayfern terms in Settings first)",
     "mcpStarted": "MCP server started on port {{port}}",
     "mcpStopped": "MCP server stopped",
     "mcpToggleFailed": "Failed to toggle MCP server",
@@ -746,7 +746,7 @@
   },
   "config": {
     "wayfern": {
-      "title": "Chromium Configuration",
+      "title": "Wayfern Configuration",
       "fingerprint": {
         "title": "Fingerprint",
         "randomize": "Randomize on Launch",
@@ -799,7 +799,7 @@
       "sourcePlaceholder": "Select a profile to copy cookies from",
       "running": "(running)",
       "targetProfiles": "Target Profiles ({{count}})",
-      "noOtherTargets": "No other Chromium profiles selected",
+      "noOtherTargets": "No other Wayfern profiles selected",
       "selectSourceFirst": "Select a source profile first",
       "selectionStatus": "({{selected}} of {{total}} selected)",
       "searchPlaceholder": "Search domains or cookies...",
@@ -928,7 +928,7 @@
     "serverError": "Server error. Please try again later.",
     "unknownError": "An unknown error occurred. Please try again.",
     "noProfilesForUrl": "No profiles available. Please create a profile first before opening URLs.",
-    "updateWayfernConfigFailed": "Failed to update chromium config: {{error}}",
+    "updateWayfernConfigFailed": "Failed to update wayfern config: {{error}}",
     "createProfileFailed": "Failed to create profile: {{error}}",
     "launchBrowserFailed": "Failed to launch browser: {{error}}",
     "cannotDeleteRunningProfile": "Cannot delete profile while browser is running. Please stop the browser first.",
@@ -936,7 +936,7 @@
     "renameProfileFailed": "Failed to rename profile: {{error}}",
     "killBrowserFailed": "Failed to kill browser: {{error}}",
     "deleteSelectedProfilesFailed": "Failed to delete selected profiles: {{error}}",
-    "cookieCopyUnsupportedBrowser": "Cookie copy only works with Chromium profiles",
+    "cookieCopyUnsupportedBrowser": "Cookie copy only works with Wayfern profiles",
     "updateSyncSettingsFailed": "Failed to update sync settings",
     "cloneProfileFailed": "Failed to clone profile: {{error}}",
     "loadSupportedBrowsersFailed": "Failed to load supported browsers",
@@ -953,7 +953,7 @@
     "setProfilePasswordFailed": "Failed to set profile password: {{error}}"
   },
   "browser": {
-    "wayfern": "Chromium"
+    "wayfern": "Wayfern"
   },
   "fingerprint": {
     "crossOsWarning": "Spoofing fingerprint for a different operating system is less reliable because it is impossible to perfectly mimic all underlying components. Use with caution.",
@@ -1234,7 +1234,7 @@
       "cannotWhileRunning": "Stop the profile before changing its password."
     },
     "fingerprint": {
-      "notSupported": "Fingerprint editing is only available for Chromium profiles.",
+      "notSupported": "Fingerprint editing is only available for Wayfern profiles.",
       "lockedTitle": "Viewing & editing the fingerprint is a Pro feature",
       "lockedDescription": "Your device information is protected in every profile. Viewing and editing a profile's fingerprint requires an active paid plan."
     },
@@ -1577,8 +1577,8 @@
     "createButton": "Create"
   },
   "wayfernTerms": {
-    "title": "Chromium Terms and Conditions",
-    "description": "Before using Donut Browser, you must read and agree to Chromium's Terms and Conditions.",
+    "title": "Wayfern Terms and Conditions",
+    "description": "Before using Donut Browser, you must read and agree to Wayfern's Terms and Conditions.",
     "reviewLabel": "Please review the Terms and Conditions at:",
     "agreeNotice": "By clicking \"I Accept\", you agree to be bound by these terms.",
     "acceptButton": "I Accept",
@@ -1839,12 +1839,11 @@
     "proxyNotWorking": "The selected proxy isn't working, so the profile wasn't created.",
     "proxyPaymentRequired": "The selected proxy requires payment (402) — its subscription may have expired — so the profile wasn't created.",
     "vpnNotWorking": "The selected VPN isn't working, so the profile wasn't created.",
-    "camoufoxImportDeprecated": "Importing this profile type is no longer supported. Please use Chromium instead.",
+    "camoufoxImportDeprecated": "Importing this profile type is no longer supported. Please use Wayfern instead.",
     "updateChecksumsUnavailable": "The update {{version}} could not be verified because its checksum file could not be retrieved. The update was not installed; it will be retried later.",
     "updateChecksumMismatch": "The downloaded update file {{file}} failed checksum verification and was discarded. Please try again.",
     "nameCannotBeEmpty": "Name cannot be empty",
-    "wayfernVersionNotAvailable": "Chromium version {{requested}} is not available for download. The current version is {{current}}.",
-    "systemChromiumNotFound": "Chromium was not found. Install Chromium/Chrome or set DONUT_CHROMIUM_PATH.",
+    "wayfernVersionNotAvailable": "Wayfern version {{requested}} is not available for download. The current version is {{current}}.",
     "automationScenarioNotFound": "That automation scenario no longer exists.",
     "automationScenarioAlreadyExists": "A scenario named \"{{name}}\" already exists.",
     "automationScenarioEmpty": "A scenario needs at least one step.",
@@ -1997,7 +1996,7 @@
     "steps": {
       "createProfile": {
         "title": "Create your first profile",
-        "content": "Click here to create your first profile. Pick Chromium as the browser — the recommended, fingerprint-protected Chromium."
+        "content": "Click here to create your first profile. Pick Wayfern as the browser — the recommended, fingerprint-protected Chromium."
       },
       "dnsBlocking": {
         "title": "DNS blocking",
@@ -2030,7 +2029,7 @@
     },
     "ready": {
       "title": "Setting things up",
-      "descDownloading": "Downloading your first browser (Chromium). This one-time setup runs in the background — hang tight.",
+      "descDownloading": "Downloading your first browser (Wayfern). This one-time setup runs in the background — hang tight.",
       "descReady": "Your browser is ready. Let's create your first profile.",
       "cta": "Create my first profile",
       "downloading": "Downloading…",
@@ -2083,7 +2082,7 @@
     "unknownError": "Unknown error occurred"
   },
   "cookieCopy": {
-    "noOtherTargets": "No other Chromium profiles selected"
+    "noOtherTargets": "No other Wayfern profiles selected"
   },
   "automation": {
     "title": "Automation",

@@ -2,8 +2,7 @@
 //!
 //! Both the MCP server and the automation engine drive profiles over CDP, so the
 //! transport lives here and each caller maps `String` errors into its own error
-//! type. Only Chromium targets expose a CDP port — see
-//! `crate::browser::is_chromium_target`.
+//! type. Only Wayfern profiles expose a CDP port.
 
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
@@ -18,9 +17,9 @@ use crate::profile::ProfileManager;
 /// Port info is written by the launcher, which can lag the process spawn, so
 /// this retries for up to 10 seconds before giving up.
 pub async fn cdp_port_for_profile(profile: &BrowserProfile) -> Result<u16, String> {
-  if !crate::browser::is_chromium_target(&profile.browser) {
+  if profile.browser != "wayfern" {
     return Err(format!(
-      "Profile '{}' is not a Chromium profile, so it has no CDP endpoint",
+      "Profile '{}' is not a Wayfern profile, so it has no CDP endpoint",
       profile.name
     ));
   }

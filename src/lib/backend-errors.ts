@@ -36,7 +36,6 @@ export type BackendErrorCode =
   | "PROXY_PAYMENT_REQUIRED"
   | "VPN_NOT_WORKING"
   | "CAMOUFOX_IMPORT_DEPRECATED"
-  | "SYSTEM_CHROMIUM_NOT_FOUND"
   | "UPDATE_CHECKSUMS_UNAVAILABLE"
   | "UPDATE_CHECKSUM_MISMATCH"
   | "AUTOMATION_SCENARIO_NOT_FOUND"
@@ -169,10 +168,6 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.vpnNotWorking");
     case "CAMOUFOX_IMPORT_DEPRECATED":
       return t("backendErrors.camoufoxImportDeprecated");
-    case "SYSTEM_CHROMIUM_NOT_FOUND":
-      return t("backendErrors.systemChromiumNotFound", {
-        detail: parsed.params?.detail ?? "",
-      });
     case "UPDATE_CHECKSUMS_UNAVAILABLE":
       return t("backendErrors.updateChecksumsUnavailable", {
         version: parsed.params?.version ?? "",

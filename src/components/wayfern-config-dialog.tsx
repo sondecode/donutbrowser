@@ -11,7 +11,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { isChromiumProfileBrowser } from "@/lib/browser-utils";
 import { isManualLocationComplete } from "@/lib/fingerprint-location";
 import type { BrowserProfile, WayfernConfig, WayfernOS } from "@/types";
 import { LoadingButton } from "./loading-button";
@@ -50,7 +49,7 @@ export function WayfernConfigDialog({
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (profile && isChromiumProfileBrowser(profile.browser)) {
+    if (profile?.browser === "wayfern") {
       setConfig(
         profile.wayfern_config || {
           geoip: true,
@@ -104,7 +103,7 @@ export function WayfernConfigDialog({
   };
 
   const handleClose = () => {
-    if (profile && isChromiumProfileBrowser(profile.browser)) {
+    if (profile?.browser === "wayfern") {
       setConfig(
         profile.wayfern_config || {
           geoip: true,
@@ -115,7 +114,7 @@ export function WayfernConfigDialog({
     onClose();
   };
 
-  if (!profile || !isChromiumProfileBrowser(profile.browser)) {
+  if (profile?.browser !== "wayfern") {
     return null;
   }
 
@@ -127,11 +126,11 @@ export function WayfernConfigDialog({
             {isRunning
               ? t("wayfernConfigDialog.titleView", {
                   name: profile.name,
-                  browser: "Chromium",
+                  browser: "Wayfern",
                 })
               : t("wayfernConfigDialog.titleConfigure", {
                   name: profile.name,
-                  browser: "Chromium",
+                  browser: "Wayfern",
                 })}
           </DialogTitle>
         </DialogHeader>
@@ -146,7 +145,7 @@ export function WayfernConfigDialog({
               crossOsUnlocked={crossOsUnlocked}
               limitedMode={!crossOsUnlocked}
               profileVersion={profile.version}
-              profileBrowser="chromium"
+              profileBrowser="wayfern"
             />
           </div>
         </ScrollArea>

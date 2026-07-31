@@ -89,7 +89,8 @@ use browser_version_manager::{
 };
 
 use downloaded_browsers_registry::{
-  ensure_active_browsers_downloaded, get_downloaded_browser_versions,
+  check_missing_binaries, ensure_active_browsers_downloaded, ensure_all_binaries_exist,
+  get_downloaded_browser_versions,
 };
 
 use downloader::{cancel_download, download_browser};
@@ -1221,7 +1222,7 @@ async fn generate_sample_fingerprint(
     updated_at: None,
   };
 
-  if crate::browser::is_chromium_target(&browser) {
+  if browser == "wayfern" {
     let config: crate::wayfern_manager::WayfernConfig =
       serde_json::from_str(&config_json).map_err(|e| format!("Failed to parse config: {e}"))?;
     let manager = crate::wayfern_manager::WayfernManager::instance();
@@ -1863,7 +1864,9 @@ pub fn run() {
         let geoip_downloader = crate::geoip_downloader::GeoIPDownloader::instance();
         match geoip_downloader.check_missing_geoip_database() {
           Ok(true) => {
-            log::info!("GeoIP database is missing for Chromium profiles, downloading at startup...");
+            log::info!(
+              "GeoIP database is missing for Wayfern profiles, downloading at startup..."
+            );
             let geoip_downloader = GeoIPDownloader::instance();
             if let Err(e) = geoip_downloader
               .download_geoip_database(&app_handle_geoip)
@@ -1875,7 +1878,7 @@ pub fn run() {
             }
           }
           Ok(false) => {
-            // No Chromium profiles or GeoIP database already available.
+            // No Wayfern profiles or GeoIP database already available
           }
           Err(e) => {
             log::error!("Failed to check GeoIP database status at startup: {e}");
@@ -2181,9 +2184,12 @@ pub fn run() {
       // Start cloud auth background refresh loop
       let app_handle_cloud = app.handle().clone();
       tauri::async_runtime::spawn(async move {
-        // On startup, refresh sync token and proxy config in parallel. Chromium
-        // launches now resolve a system browser executable and no longer need a
-        // Wayfern browser token in the launch path.
+        // On startup, refresh sync token, proxy config, and wayfern token in
+        // PARALLEL. Previously they were awaited sequentially, so the wayfern
+        // token request didn't even start until the earlier two API calls had
+        // finished. Wayfern launch can race with this task — a few seconds of
+        // serialized API calls translates directly into a slow first launch
+        // because launch_wayfern blocks waiting for the token to land.
         // api_call_with_retry handles 401/refresh internally — no direct
         // refresh_access_token call needed.
         if cloud_auth::CLOUD_AUTH.is_logged_in().await {
@@ -2195,7 +2201,14 @@ pub fn run() {
           let proxy_fut = async {
             cloud_auth::CLOUD_AUTH.sync_cloud_proxy().await;
           };
-          tokio::join!(sync_token_fut, proxy_fut);
+          let wayfern_fut = async {
+            if cloud_auth::CLOUD_AUTH.has_active_paid_subscription().await {
+              if let Err(e) = cloud_auth::CLOUD_AUTH.request_wayfern_token().await {
+                log::warn!("Failed to request wayfern token on startup: {e}");
+              }
+            }
+          };
+          tokio::join!(sync_token_fut, proxy_fut, wayfern_fut);
         }
         cloud_auth::CloudAuthManager::start_sync_token_refresh_loop(app_handle_cloud).await;
       });
@@ -2260,7 +2273,9 @@ pub fn run() {
       restart_application,
       detect_existing_profiles,
       import_browser_profile,
+      check_missing_binaries,
       check_missing_geoip_database,
+      ensure_all_binaries_exist,
       ensure_active_browsers_downloaded,
       create_stored_proxy,
       get_stored_proxies,

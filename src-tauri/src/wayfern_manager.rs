@@ -132,14 +132,6 @@ struct CdpTarget {
 }
 
 impl WayfernManager {
-  /// Used only when the running binary can't be asked for its own version.
-  const DEFAULT_CHROME_MAJOR: &'static str = "120";
-  /// Chrome pads its brand list with one deliberately meaningless entry to keep
-  /// parsers honest. The exact string and version rotate between releases;
-  /// these are what current Chromium builds emit.
-  const GREASE_BRAND: &'static str = "Not?A_Brand";
-  const GREASE_VERSION: &'static str = "24";
-
   fn new() -> Self {
     Self {
       inner: Arc::new(AsyncMutex::new(WayfernManagerInner {
@@ -577,6 +569,12 @@ impl WayfernManager {
           }
           obj.insert("latitude".to_string(), json!(geo.latitude));
           obj.insert("longitude".to_string(), json!(geo.longitude));
+          let locale_str = geo.locale.as_string();
+          obj.insert("language".to_string(), json!(&locale_str));
+          obj.insert(
+            "languages".to_string(),
+            json!([&locale_str, &geo.locale.language]),
+          );
         }
         log::info!(
           "Applied geolocation to Wayfern fingerprint: {} ({})",
@@ -596,333 +594,6 @@ impl WayfernManager {
           }
         }
         false
-      }
-    }
-  }
-
-  fn is_wayfern_cdp_unsupported(error: &str) -> bool {
-    error.contains("-32601")
-      || error.contains("Method not found")
-      || error.contains("wasn't found")
-      || error.contains("not found")
-  }
-
-  fn fallback_user_agent(os: &str, major: &str) -> (&'static str, String) {
-    match os {
-      "windows" => (
-        "Win32",
-        format!("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
-      ),
-      "macos" => (
-        "MacIntel",
-        format!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
-      ),
-      "android" => (
-        "Linux armv8l",
-        format!("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Mobile Safari/537.36"),
-      ),
-      "ios" => (
-        "iPhone",
-        format!("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/{major}.0.0.0 Mobile/15E148 Safari/604.1"),
-      ),
-      _ => (
-        "Linux x86_64",
-        format!("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
-      ),
-    }
-  }
-
-  fn leading_digits(value: &str) -> Option<String> {
-    let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
-    (!digits.is_empty()).then_some(digits)
-  }
-
-  /// Major version out of a `Chrome/152.0.6167.85` token, as it appears in
-  /// `Browser.getVersion`'s `product` field and in every Chromium UA string.
-  fn chrome_major_version(product: &str) -> Option<String> {
-    ["Chrome/", "Chromium/", "CriOS/"]
-      .iter()
-      .find_map(|token| product.split(token).nth(1))
-      .and_then(Self::leading_digits)
-  }
-
-  /// Version string of the binary actually rendering the page, so a spoofed UA
-  /// never claims a different engine than the one running.
-  async fn detect_chrome_version(&self, ws_url: &str) -> Option<String> {
-    match self
-      .send_cdp_command(ws_url, "Browser.getVersion", json!({}))
-      .await
-    {
-      Ok(result) => result
-        .get("product")
-        .and_then(|v| v.as_str())
-        .and_then(|product| product.split('/').nth(1))
-        .map(str::to_string),
-      Err(e) => {
-        log::warn!("Failed to read Chromium version over CDP: {e}");
-        None
-      }
-    }
-  }
-
-  /// CDP `userAgentMetadata` for `Network.setUserAgentOverride`. Overriding the
-  /// UA string alone leaves client hints untouched, so `Sec-CH-UA` keeps
-  /// answering with the real binary's brands — on a plain Chromium build that
-  /// means no `Google Chrome` brand at all, and a version that contradicts the
-  /// spoofed UA. Returns `None` for iOS, where client hints don't exist and
-  /// sending brands would be a stronger tell than sending nothing.
-  fn build_user_agent_metadata(
-    obj: &serde_json::Map<String, serde_json::Value>,
-    user_agent: &str,
-  ) -> Option<serde_json::Value> {
-    let read = |key: &str| {
-      obj
-        .get(key)
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-    };
-
-    let platform_hint = read("platform").unwrap_or_default();
-    if user_agent.contains("CriOS/")
-      || platform_hint.starts_with("iPhone")
-      || platform_hint.starts_with("iPad")
-    {
-      return None;
-    }
-
-    let major = Self::chrome_major_version(user_agent)
-      .or_else(|| read("brandVersion").and_then(Self::leading_digits))
-      .unwrap_or_else(|| Self::DEFAULT_CHROME_MAJOR.to_string());
-    // `Sec-CH-UA-Full-Version-List` carries the real build number in Chrome;
-    // a `.0.0.0` full version is itself a tell, so prefer a stored full
-    // version whenever it agrees with the major the UA claims.
-    let full_version = read("brandVersion")
-      .filter(|v| v.matches('.').count() >= 3 && Self::leading_digits(v).as_deref() == Some(&major))
-      .map(str::to_string)
-      .unwrap_or_else(|| format!("{major}.0.0.0"));
-
-    let mobile = user_agent.contains("Mobile");
-    let (platform, default_platform_version) = if platform_hint.starts_with("Win") {
-      ("Windows", "15.0.0")
-    } else if platform_hint.starts_with("Mac") {
-      ("macOS", "15.6.0")
-    } else if mobile {
-      ("Android", "13.0.0")
-    } else {
-      ("Linux", "")
-    };
-
-    // Chrome on Android reports both of these as empty strings.
-    let (architecture, bitness) = if platform == "Android" {
-      ("", "")
-    } else {
-      (read("architecture").unwrap_or("x86"), "64")
-    };
-
-    // The old default branded profiles as bare Chromium, which is exactly the
-    // fingerprint this metadata exists to remove.
-    let vendor_brand = read("brand")
-      .filter(|brand| !brand.eq_ignore_ascii_case("chromium"))
-      .unwrap_or("Google Chrome");
-
-    let brands = |version: &str| {
-      json!([
-        { "brand": Self::GREASE_BRAND, "version": Self::GREASE_VERSION },
-        { "brand": "Chromium", "version": version },
-        { "brand": vendor_brand, "version": version },
-      ])
-    };
-
-    Some(json!({
-      "brands": brands(&major),
-      "fullVersionList": brands(&full_version),
-      "fullVersion": full_version,
-      "platform": platform,
-      "platformVersion": read("platformVersion").unwrap_or(default_platform_version),
-      "architecture": architecture,
-      "bitness": bitness,
-      "model": read("model").unwrap_or_default(),
-      "mobile": mobile,
-      "wow64": false,
-    }))
-  }
-
-  async fn build_system_chromium_fingerprint(
-    profile: &BrowserProfile,
-    config: &WayfernConfig,
-    chrome_version: Option<&str>,
-  ) -> (serde_json::Value, bool) {
-    let os = config
-      .os
-      .as_deref()
-      .unwrap_or(if cfg!(target_os = "macos") {
-        "macos"
-      } else if cfg!(target_os = "linux") {
-        "linux"
-      } else {
-        "windows"
-      });
-    let brand_version = chrome_version
-      .map(str::to_string)
-      .unwrap_or_else(|| format!("{}.0.0.0", Self::DEFAULT_CHROME_MAJOR));
-    let major = Self::leading_digits(&brand_version)
-      .unwrap_or_else(|| Self::DEFAULT_CHROME_MAJOR.to_string());
-    let (platform, user_agent) = Self::fallback_user_agent(os, &major);
-    let screen_width = config
-      .screen_max_width
-      .or(config.screen_min_width)
-      .unwrap_or(1920);
-    let screen_height = config
-      .screen_max_height
-      .or(config.screen_min_height)
-      .unwrap_or(1080);
-    let avail_height = screen_height.saturating_sub(40).max(1);
-    let inner_height = avail_height.saturating_sub(88).max(1);
-    let hardware_concurrency = std::thread::available_parallelism()
-      .map(|n| n.get())
-      .unwrap_or(8);
-
-    let mut fingerprint = json!({
-      "userAgent": user_agent,
-      "platform": platform,
-      "platformVersion": "",
-      "brand": "Google Chrome",
-      "brandVersion": brand_version,
-      "hardwareConcurrency": hardware_concurrency,
-      "maxTouchPoints": if matches!(os, "android" | "ios") { 5 } else { 0 },
-      "deviceMemory": 8,
-      "screenWidth": screen_width,
-      "screenHeight": screen_height,
-      "screenAvailWidth": screen_width,
-      "screenAvailHeight": avail_height,
-      "screenColorDepth": 24,
-      "screenPixelDepth": 24,
-      "devicePixelRatio": 1,
-      "windowOuterWidth": screen_width,
-      "windowOuterHeight": avail_height,
-      "windowInnerWidth": screen_width,
-      "windowInnerHeight": inner_height,
-      "screenX": 0,
-      "screenY": 0,
-      "timezone": "America/New_York",
-      "timezoneOffset": 300,
-      "accuracy": 100,
-      "canvasNoiseSeed": profile.id.to_string(),
-      "vendor": "Google Inc.",
-      "productSub": "20030107",
-      "cookieEnabled": true,
-      "pdfViewerEnabled": true,
-      "webdriver": false,
-    });
-
-    let geolocation_applied = Self::apply_geolocation(
-      &mut fingerprint,
-      config.proxy.as_deref(),
-      config.geoip.as_ref(),
-    )
-    .await;
-
-    (fingerprint, geolocation_applied)
-  }
-
-  async fn apply_standard_chromium_overrides(&self, ws_url: &str, fingerprint: &serde_json::Value) {
-    let fp = fingerprint.get("fingerprint").unwrap_or(fingerprint);
-    let Some(obj) = fp.as_object() else {
-      return;
-    };
-
-    let read_str = |key: &str| {
-      obj
-        .get(key)
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-    };
-    let read_u32 = |key: &str| -> Option<u32> {
-      obj
-        .get(key)
-        .and_then(|v| {
-          v.as_u64()
-            .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
-        })
-        .filter(|n| *n > 0)
-        .map(|n| n as u32)
-    };
-    let read_f64 = |key: &str| -> Option<f64> {
-      obj.get(key).and_then(|v| {
-        v.as_f64()
-          .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
-      })
-    };
-
-    if let Some(user_agent) = read_str("userAgent") {
-      let mut params = json!({ "userAgent": user_agent });
-      if let Some(platform) = read_str("platform") {
-        params["platform"] = json!(platform);
-      }
-      if let Some(metadata) = Self::build_user_agent_metadata(obj, user_agent) {
-        params["userAgentMetadata"] = metadata;
-      }
-      if let Err(e) = self
-        .send_cdp_command(ws_url, "Network.setUserAgentOverride", params)
-        .await
-      {
-        log::warn!("Failed to apply Chromium user-agent override: {e}");
-      }
-    }
-
-    let width = read_u32("windowInnerWidth")
-      .or_else(|| read_u32("screenAvailWidth"))
-      .or_else(|| read_u32("screenWidth"));
-    let height = read_u32("windowInnerHeight")
-      .or_else(|| read_u32("screenAvailHeight"))
-      .or_else(|| read_u32("screenHeight"));
-    if let (Some(width), Some(height)) = (width, height) {
-      let device_scale_factor = read_f64("devicePixelRatio").unwrap_or(1.0).max(0.1);
-      let mobile = read_u32("maxTouchPoints").unwrap_or(0) > 0;
-      if let Err(e) = self
-        .send_cdp_command(
-          ws_url,
-          "Emulation.setDeviceMetricsOverride",
-          json!({
-            "width": width,
-            "height": height,
-            "deviceScaleFactor": device_scale_factor,
-            "mobile": mobile,
-          }),
-        )
-        .await
-      {
-        log::warn!("Failed to apply Chromium device metrics override: {e}");
-      }
-    }
-
-    if let Some(timezone) = read_str("timezone") {
-      if let Err(e) = self
-        .send_cdp_command(
-          ws_url,
-          "Emulation.setTimezoneOverride",
-          json!({ "timezoneId": timezone }),
-        )
-        .await
-      {
-        log::warn!("Failed to apply Chromium timezone override: {e}");
-      }
-    }
-
-    if let (Some(latitude), Some(longitude)) = (read_f64("latitude"), read_f64("longitude")) {
-      if let Err(e) = self
-        .send_cdp_command(
-          ws_url,
-          "Emulation.setGeolocationOverride",
-          json!({
-            "latitude": latitude,
-            "longitude": longitude,
-            "accuracy": read_f64("accuracy").unwrap_or(100.0),
-          }),
-        )
-        .await
-      {
-        log::warn!("Failed to apply Chromium geolocation override: {e}");
       }
     }
   }
@@ -1108,27 +779,21 @@ impl WayfernManager {
         "windows"
       });
 
-    let refresh_params = json!({ "operatingSystem": os });
+    // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
+    let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+    let mut refresh_params = json!({ "operatingSystem": os });
+    if let Some(ref token) = wayfern_token {
+      refresh_params
+        .as_object_mut()
+        .unwrap()
+        .insert("wayfernToken".to_string(), json!(token));
+    }
 
     let refresh_result = self
       .send_cdp_command(&ws_url, "Wayfern.refreshFingerprint", refresh_params)
       .await;
 
     if let Err(e) = refresh_result {
-      let message = e.to_string();
-      if Self::is_wayfern_cdp_unsupported(&message) {
-        log::warn!(
-          "System Chromium does not support Wayfern.refreshFingerprint; using fallback Chromium fingerprint data"
-        );
-        // Read the version off the still-running browser, before cleanup kills it.
-        let chrome_version = self.detect_chrome_version(&ws_url).await;
-        cleanup().await;
-        let (fallback, geolocation_applied) =
-          Self::build_system_chromium_fingerprint(profile, config, chrome_version.as_deref()).await;
-        let fingerprint_json = serde_json::to_string(&fallback)
-          .map_err(|e| format!("Failed to serialize fallback fingerprint: {e}"))?;
-        return Ok((fingerprint_json, geolocation_applied));
-      }
       cleanup().await;
       return Err(format!("Failed to refresh fingerprint: {e}").into());
     }
@@ -1454,6 +1119,37 @@ impl WayfernManager {
     let profile_color = profile_color.trim().trim_start_matches('#');
     args.push(format!("--wayfern-profile-color={profile_color}"));
 
+    let mut wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+    if wayfern_token.is_none()
+      && crate::cloud_auth::CLOUD_AUTH
+        .has_active_paid_subscription()
+        .await
+    {
+      // Brief wait for the background token fetch — when the API is healthy
+      // the token usually lands in well under a second. If api.donutbrowser.com
+      // is unreachable we don't want to gate the whole launch on it; the
+      // browser still works without the token (cross-OS fingerprinting just
+      // won't be enabled for this session, and the next launch will pick it
+      // up once the token arrives).
+      log::info!("Wayfern token not ready for paid user, waiting briefly...");
+      for _ in 0..3 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+        if wayfern_token.is_some() {
+          break;
+        }
+      }
+      if wayfern_token.is_none() {
+        log::warn!(
+          "Wayfern token still unavailable after wait; launching without it (api.donutbrowser.com may be unreachable)"
+        );
+      }
+    }
+    if let Some(ref token) = wayfern_token {
+      args.push(format!("--wayfern-token={token}"));
+      log::info!("Wayfern token passed as CLI flag (length: {})", token.len());
+    }
+
     if let Some(proxy) = proxy_url {
       // Map the local proxy scheme to the matching PAC directive. SOCKS5 lets
       // Chromium route UDP (QUIC/WebRTC) and resolve DNS through the proxy;
@@ -1509,7 +1205,6 @@ impl WayfernManager {
 
     // Apply fingerprint if configured
     let mut used_fingerprint: Option<String> = None;
-    let mut used_standard_cdp_overrides = false;
     if let Some(fingerprint_json) = &config.fingerprint {
       log::info!(
         "Applying fingerprint to Wayfern browser, fingerprint length: {} chars",
@@ -1542,7 +1237,15 @@ impl WayfernManager {
       }
 
       // Denormalize fingerprint for Wayfern CDP (convert arrays/objects to JSON strings)
-      let fingerprint_for_cdp = Self::denormalize_fingerprint(fingerprint);
+      let mut fingerprint_for_cdp = Self::denormalize_fingerprint(fingerprint);
+
+      // Normalize languages: if it's a comma-separated string, convert to array
+      if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+        if let Some(serde_json::Value::String(s)) = obj.get("languages").cloned() {
+          let arr: Vec<&str> = s.split(',').map(|l| l.trim()).collect();
+          obj.insert("languages".to_string(), json!(arr));
+        }
+      }
 
       log::info!(
         "Fingerprint prepared for CDP command, fields: {:?}",
@@ -1554,15 +1257,24 @@ impl WayfernManager {
       // Log timezone and geolocation fields specifically for debugging
       if let Some(obj) = fingerprint_for_cdp.as_object() {
         log::info!(
-          "Timezone/Geolocation fields - timezone: {:?}, timezoneOffset: {:?}, latitude: {:?}, longitude: {:?}",
+          "Timezone/Geolocation fields - timezone: {:?}, timezoneOffset: {:?}, latitude: {:?}, longitude: {:?}, language: {:?}, languages: {:?}",
           obj.get("timezone"),
           obj.get("timezoneOffset"),
           obj.get("latitude"),
-          obj.get("longitude")
+          obj.get("longitude"),
+          obj.get("language"),
+          obj.get("languages")
         );
       }
 
-      let fingerprint_params = fingerprint_for_cdp.clone();
+      // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
+      let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+      let mut fingerprint_params = fingerprint_for_cdp.clone();
+      if let Some(ref token) = wayfern_token {
+        if let Some(obj) = fingerprint_params.as_object_mut() {
+          obj.insert("wayfernToken".to_string(), json!(token));
+        }
+      }
 
       for target in &page_targets {
         if let Some(ws_url) = &target.websocket_debugger_url {
@@ -1595,30 +1307,8 @@ impl WayfernManager {
                 }
               }
             }
-            Err(e) => {
-              let message = e.to_string();
-              if Self::is_wayfern_cdp_unsupported(&message) {
-                log::warn!(
-                  "System Chromium does not support Wayfern.setFingerprint; applying standard Chromium CDP overrides"
-                );
-                self
-                  .apply_standard_chromium_overrides(ws_url, &fingerprint_for_cdp)
-                  .await;
-                used_standard_cdp_overrides = true;
-              } else {
-                log::error!("Failed to apply fingerprint to target: {e}");
-              }
-            }
+            Err(e) => log::error!("Failed to apply fingerprint to target: {e}"),
           }
-        }
-      }
-
-      for target in &page_targets {
-        if let Some(ws_url) = &target.websocket_debugger_url {
-          self
-            .apply_standard_chromium_overrides(ws_url, &fingerprint_for_cdp)
-            .await;
-          used_standard_cdp_overrides = true;
         }
       }
     } else {
@@ -1637,24 +1327,15 @@ impl WayfernManager {
           {
             log::error!("Failed to navigate to URL: {e}");
           }
-          if let Some(fingerprint_json) = &config.fingerprint {
-            if let Ok(fingerprint) = serde_json::from_str::<serde_json::Value>(fingerprint_json) {
-              self
-                .apply_standard_chromium_overrides(ws_url, &fingerprint)
-                .await;
-            }
-          }
         }
       }
     }
 
     for target in &page_targets {
       if let Some(ws_url) = &target.websocket_debugger_url {
-        if !used_standard_cdp_overrides {
-          let _ = self
-            .send_cdp_command(ws_url, "Emulation.clearDeviceMetricsOverride", json!({}))
-            .await;
-        }
+        let _ = self
+          .send_cdp_command(ws_url, "Emulation.clearDeviceMetricsOverride", json!({}))
+          .await;
         let _ = self
           .send_cdp_command(
             ws_url,
@@ -2052,141 +1733,6 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  fn metadata_for(fingerprint: serde_json::Value) -> Option<serde_json::Value> {
-    let obj = fingerprint.as_object().unwrap().clone();
-    let user_agent = obj.get("userAgent").unwrap().as_str().unwrap().to_string();
-    WayfernManager::build_user_agent_metadata(&obj, &user_agent)
-  }
-
-  #[test]
-  fn chrome_major_version_parses_every_chromium_token() {
-    assert_eq!(
-      WayfernManager::chrome_major_version("Chrome/152.0.6167.85").as_deref(),
-      Some("152")
-    );
-    assert_eq!(
-      WayfernManager::chrome_major_version("HeadlessChrome/120.0.0.0").as_deref(),
-      Some("120")
-    );
-    assert_eq!(
-      WayfernManager::chrome_major_version(
-        "Mozilla/5.0 (iPhone) CriOS/152.0.0.0 Mobile/15E148 Safari/604.1"
-      )
-      .as_deref(),
-      Some("152")
-    );
-    assert_eq!(WayfernManager::chrome_major_version("Firefox/130.0"), None);
-  }
-
-  #[test]
-  fn user_agent_metadata_advertises_google_chrome_brand() {
-    let metadata = metadata_for(json!({
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
-      "platform": "MacIntel",
-      "brand": "Chromium",
-      "brandVersion": "152.0.6167.85",
-    }))
-    .expect("desktop profiles must send client hints");
-
-    // The bare-Chromium brand list is the tell this metadata exists to remove.
-    let brands: Vec<(String, String)> = metadata["brands"]
-      .as_array()
-      .unwrap()
-      .iter()
-      .map(|b| {
-        (
-          b["brand"].as_str().unwrap().to_string(),
-          b["version"].as_str().unwrap().to_string(),
-        )
-      })
-      .collect();
-    assert_eq!(
-      brands,
-      vec![
-        ("Not?A_Brand".to_string(), "24".to_string()),
-        ("Chromium".to_string(), "152".to_string()),
-        ("Google Chrome".to_string(), "152".to_string()),
-      ]
-    );
-
-    assert_eq!(metadata["platform"], json!("macOS"));
-    assert_eq!(metadata["platformVersion"], json!("15.6.0"));
-    assert_eq!(metadata["mobile"], json!(false));
-    assert_eq!(metadata["bitness"], json!("64"));
-    // Real Chrome reports the build number here, never a padded `.0.0.0`.
-    assert_eq!(
-      metadata["fullVersionList"][2]["version"],
-      json!("152.0.6167.85")
-    );
-  }
-
-  #[test]
-  fn user_agent_metadata_version_follows_the_user_agent_string() {
-    // A stored brandVersion left over from another build must never contradict
-    // the UA string actually being sent.
-    let metadata = metadata_for(json!({
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
-      "platform": "Win32",
-      "brandVersion": "120",
-    }))
-    .unwrap();
-
-    assert_eq!(metadata["brands"][1]["version"], json!("152"));
-    assert_eq!(
-      metadata["fullVersionList"][1]["version"],
-      json!("152.0.0.0")
-    );
-    assert_eq!(metadata["platform"], json!("Windows"));
-  }
-
-  #[test]
-  fn user_agent_metadata_preserves_a_custom_vendor_brand() {
-    let metadata = metadata_for(json!({
-      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
-      "platform": "Linux x86_64",
-      "brand": "Brave",
-    }))
-    .unwrap();
-
-    assert_eq!(metadata["brands"][2]["brand"], json!("Brave"));
-    assert_eq!(metadata["platform"], json!("Linux"));
-    assert_eq!(metadata["platformVersion"], json!(""));
-  }
-
-  #[test]
-  fn user_agent_metadata_matches_android_conventions() {
-    let metadata = metadata_for(json!({
-      "userAgent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
-      "platform": "Linux armv8l",
-    }))
-    .unwrap();
-
-    assert_eq!(metadata["platform"], json!("Android"));
-    assert_eq!(metadata["mobile"], json!(true));
-    // Chrome on Android leaves both of these empty.
-    assert_eq!(metadata["architecture"], json!(""));
-    assert_eq!(metadata["bitness"], json!(""));
-  }
-
-  #[test]
-  fn user_agent_metadata_skipped_on_ios() {
-    // iOS browsers implement no client hints; brands there would be a tell.
-    assert!(metadata_for(json!({
-      "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/152.0.0.0 Mobile/15E148 Safari/604.1",
-      "platform": "iPhone",
-    }))
-    .is_none());
-  }
-
-  #[test]
-  fn fallback_user_agent_carries_the_detected_version() {
-    let (platform, user_agent) = WayfernManager::fallback_user_agent("macos", "152");
-    assert_eq!(platform, "MacIntel");
-    assert!(user_agent.contains("Chrome/152.0.0.0"));
-    let (_, ios) = WayfernManager::fallback_user_agent("ios", "152");
-    assert!(ios.contains("CriOS/152.0.0.0"));
-  }
 
   #[test]
   fn remote_socks_url_detection() {
