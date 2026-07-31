@@ -55,18 +55,19 @@ pub struct ApiProfileResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateProfileRequest {
   pub name: String,
-  /// Browser engine target. Use `"chromium"`; legacy `"wayfern"` is accepted
-  /// as an alias and normalized to Chromium.
+  /// Browser engine. Must be `"wayfern"` (anti-detect Chromium). Any other
+  /// value (e.g. `"chromium"`) is rejected with 400.
   pub browser: String,
-  /// Optional legacy field. Chromium profiles use the system browser and store
-  /// `"system"` here; this endpoint does not download browser engines.
+  /// Optional. Omit (or pass `"latest"`) to use the newest already-downloaded
+  /// version of the chosen browser. A concrete version must already be
+  /// downloaded; the create path does not fetch new versions.
   #[serde(default)]
   pub version: Option<String>,
   pub proxy_id: Option<String>,
   pub vpn_id: Option<String>,
   pub launch_hook: Option<String>,
   pub release_type: Option<String>,
-  /// Chromium fingerprint/config. Legacy field name is kept for compatibility.
+  /// Wayfern fingerprint/config. Send only when `browser` is `"wayfern"`.
   /// Omit it, or pass an empty object `{}`, to have a fresh fingerprint
   /// generated automatically at creation. Provide a `fingerprint` field to
   /// pin a specific one.
@@ -184,10 +185,7 @@ struct UpdateVpnRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 struct DownloadBrowserRequest {
-  /// Use `"chromium"`; legacy `"wayfern"` is accepted as an alias. The endpoint
-  /// no longer downloads a browser engine and resolves system Chromium instead.
   browser: String,
-  /// Ignored for Chromium targets; the response version is `"system"`.
   version: String,
 }
 
@@ -844,11 +842,11 @@ async fn get_profile(
 
 /// Create a profile.
 ///
-/// - `browser` must be `"chromium"`; legacy `"wayfern"` is accepted
-///   as an alias.
+/// - `browser` must be `"wayfern"`; any other value is rejected
 ///   with 400.
-/// - `version` is optional and ignored for Chromium profiles. Profiles use the
-///   system-installed Chromium/Chrome executable and store `"system"`.
+/// - `version` is optional: omit it or pass `"latest"` to use the newest
+///   already-downloaded version of that browser. The version must be present
+///   locally (this endpoint does not download new versions); 400 if none is.
 /// - Omitting the matching `wayfern_config`, or passing an
 ///   empty object `{}`, generates a fresh fingerprint automatically.
 #[utoipa::path(
@@ -857,7 +855,7 @@ async fn get_profile(
   request_body = CreateProfileRequest,
   responses(
     (status = 200, description = "Profile created successfully", body = ApiProfileResponse),
-    (status = 400, description = "Invalid browser, or system Chromium unavailable"),
+    (status = 400, description = "Invalid browser, or no downloaded version available"),
     (status = 401, description = "Unauthorized"),
     (status = 402, description = "Selected proxy requires payment"),
     (status = 500, description = "Internal server error")
@@ -873,26 +871,47 @@ async fn create_profile(
 ) -> Result<Json<ApiProfileResponse>, (StatusCode, String)> {
   let profile_manager = ProfileManager::instance();
 
-  // Normalize the browser target alias. Profiles now launch the system
-  // Chromium-family browser; no browser engine is downloaded during creation.
-  let normalized_browser = match request.browser.trim().to_ascii_lowercase().as_str() {
-    "wayfern" | "chromium" => "chromium".to_string(),
-    _ => {
-      return Err((
-        StatusCode::BAD_REQUEST,
-        format!(
-          "Invalid browser \"{}\". Must be \"wayfern\" or \"chromium\".",
-          request.browser
-        ),
-      ));
-    }
-  };
-
-  if let Err(e) = crate::browser::get_system_chromium_executable_path() {
-    return Err((StatusCode::BAD_REQUEST, e.to_string()));
+  // Only Wayfern profiles are launchable; the rest of the system
+  // (fingerprint generation, launch, run) supports nothing else. Reject anything
+  // else up front — otherwise the profile is created with no fingerprint and an
+  // unrecognized browser, then crashes with a 500 on /run. Mirrors the MCP
+  // create_profile validation.
+  if request.browser != "wayfern" {
+    return Err((
+      StatusCode::BAD_REQUEST,
+      format!(
+        "Invalid browser \"{}\". Must be \"wayfern\" (anti-detect Chromium).",
+        request.browser
+      ),
+    ));
   }
 
-  let version = crate::browser::SYSTEM_CHROMIUM_VERSION.to_string();
+  // Resolve the version. Omitted, empty, or "latest" means "newest version
+  // already downloaded for this browser". The create path generates the
+  // fingerprint by launching that binary, so the version must be present
+  // locally — we don't fetch new versions here. 400 if none is downloaded.
+  let version = match request.version.as_deref() {
+    Some(v) if !v.is_empty() && v != "latest" => v.to_string(),
+    _ => {
+      let registry = crate::downloaded_browsers_registry::DownloadedBrowsersRegistry::instance();
+      let mut versions = registry.get_downloaded_versions(&request.browser);
+      // browsers is a HashMap, so keys are unordered — sort newest-first by
+      // semver before taking the latest.
+      versions.sort_by(|a, b| crate::api_client::compare_versions(b, a));
+      match versions.into_iter().next() {
+        Some(v) => v,
+        None => {
+          return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+              "No downloaded version of \"{}\" is available. Download the browser in Donut Browser first — this endpoint does not download browsers.",
+              request.browser
+            ),
+          ));
+        }
+      }
+    }
+  };
 
   // Parse wayfern config if provided
   let wayfern_config = if let Some(config) = &request.wayfern_config {
@@ -924,7 +943,7 @@ async fn create_profile(
     .create_profile_with_group(
       &state.app_handle,
       &request.name,
-      &normalized_browser,
+      &request.browser,
       &version,
       request.release_type.as_deref().unwrap_or("stable"),
       request.proxy_id.clone(),
@@ -2276,8 +2295,8 @@ async fn import_profile_cookies(
   path = "/v1/browsers/download",
   request_body = DownloadBrowserRequest,
   responses(
-    (status = 200, description = "Browser engine is available from the system", body = DownloadBrowserResponse),
-    (status = 400, description = "Invalid browser or system Chromium missing"),
+    (status = 200, description = "Browser downloaded (or already present)", body = DownloadBrowserResponse),
+    (status = 400, description = "Invalid browser or version not available for download"),
     (status = 401, description = "Unauthorized"),
     (status = 409, description = "This browser version is already being downloaded"),
     (status = 500, description = "Internal server error (e.g. network failure)")
@@ -2300,13 +2319,9 @@ async fn download_browser_api(
   {
     // Echo the version the downloader actually installed, not the requested one.
     Ok(version) => Ok(Json(DownloadBrowserResponse {
-      browser: if crate::browser::is_chromium_target(&request.browser) {
-        "chromium".to_string()
-      } else {
-        request.browser
-      },
+      browser: request.browser,
       version,
-      status: "available".to_string(),
+      status: "downloaded".to_string(),
     })),
     Err(e) => {
       if e.contains("already being downloaded") {
@@ -2398,21 +2413,21 @@ mod tests {
 
   #[test]
   fn create_profile_request_ignores_unknown_fields() {
-    let json = r#"{"name": "p", "browser": "chromium", "version": "latest", "future_field": true}"#;
+    let json = r#"{"name": "p", "browser": "wayfern", "version": "latest", "future_field": true}"#;
     let parsed: CreateProfileRequest =
       serde_json::from_str(json).expect("unknown fields must be ignored, not rejected");
-    assert_eq!(parsed.browser, "chromium");
+    assert_eq!(parsed.browser, "wayfern");
   }
 
   #[test]
   fn create_profile_request_allows_omitting_version_and_configs() {
-    // Minimal body: no version, no wayfern_config. Must deserialize (version
-    // resolves to system Chromium at the handler; an absent config triggers
-    // fresh-fingerprint generation).
-    let json = r#"{"name": "p", "browser": "chromium"}"#;
+    // Minimal body: no version, no wayfern_config. Must
+    // deserialize (version resolves to latest-downloaded at the handler; an
+    // absent config triggers fresh-fingerprint generation).
+    let json = r#"{"name": "p", "browser": "wayfern"}"#;
     let parsed: CreateProfileRequest =
       serde_json::from_str(json).expect("version and configs are optional");
-    assert_eq!(parsed.browser, "chromium");
+    assert_eq!(parsed.browser, "wayfern");
     assert!(parsed.version.is_none());
     assert!(parsed.wayfern_config.is_none());
   }
@@ -2421,9 +2436,9 @@ mod tests {
   fn create_profile_browser_validation_matches_supported_engines() {
     // The handler rejects anything that isn't a launchable engine; this is the
     // same predicate it uses, kept in lockstep with MCP's create_profile.
-    let is_valid = crate::browser::is_chromium_target;
+    let is_valid = |b: &str| b == "wayfern";
     assert!(is_valid("wayfern"));
-    assert!(is_valid("chromium"));
+    assert!(!is_valid("chromium"));
     assert!(!is_valid(""));
   }
 

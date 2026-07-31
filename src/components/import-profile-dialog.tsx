@@ -39,8 +39,8 @@ import { cn } from "@/lib/utils";
 import type { DetectedProfile, WayfernConfig } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
-const getMappedBrowser = (_browser: string): "chromium" => {
-  return "chromium";
+const getMappedBrowser = (_browser: string): "wayfern" => {
+  return "wayfern";
 };
 
 interface ImportProfileDialogProps {
@@ -88,9 +88,9 @@ export function ImportProfileDialog({
     useBrowserSupport();
   const { storedProxies } = useProxyEvents();
 
-  // Only Chromium-family browsers can be imported as Chromium profiles.
+  // Only Chromium-family browsers can be imported as Wayfern profiles.
   const importableBrowsers = supportedBrowsers.filter(
-    (browser) => getMappedBrowser(browser) === "chromium",
+    (browser) => getMappedBrowser(browser) === "wayfern",
   );
 
   const loadDetectedProfiles = useCallback(async () => {
@@ -186,7 +186,7 @@ export function ImportProfileDialog({
         browserType,
         newProfileName,
         proxyId: selectedProxyId ?? null,
-        wayfernConfig: mappedBrowser === "chromium" ? wayfernConfig : null,
+        wayfernConfig: mappedBrowser === "wayfern" ? wayfernConfig : null,
       });
 
       toast.success(

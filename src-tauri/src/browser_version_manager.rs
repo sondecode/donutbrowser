@@ -1,5 +1,6 @@
-use crate::api_client::{ApiClient, BrowserRelease};
+use crate::api_client::{sort_versions, ApiClient, BrowserRelease};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BrowserVersionInfo {
@@ -46,15 +47,28 @@ impl BrowserVersionManager {
     &self,
     browser: &str,
   ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    match browser.trim().to_ascii_lowercase().as_str() {
-      "wayfern" | "chromium" => Ok(crate::browser::get_system_chromium_executable_path().is_ok()),
+    let (os, arch) = Self::get_platform_info();
+
+    match browser {
+      "wayfern" => {
+        let platform_key = format!("{os}-{arch}");
+        Ok(matches!(
+          platform_key.as_str(),
+          "macos-arm64"
+            | "linux-x64"
+            | "macos-x64"
+            | "linux-arm64"
+            | "windows-x64"
+            | "windows-arm64"
+        ))
+      }
       _ => Err(format!("Unknown browser: {browser}").into()),
     }
   }
 
   /// Get list of browsers supported on the current platform
   pub fn get_supported_browsers(&self) -> Vec<String> {
-    let all_browsers = vec!["chromium"];
+    let all_browsers = vec!["wayfern"];
 
     all_browsers
       .into_iter()
@@ -65,10 +79,6 @@ impl BrowserVersionManager {
 
   /// Get cached browser versions immediately (returns None if no cache exists)
   pub fn get_cached_browser_versions(&self, browser: &str) -> Option<Vec<String>> {
-    if crate::browser::is_chromium_target(browser) {
-      return Some(self.system_chromium_versions());
-    }
-
     self
       .api_client
       .load_cached_versions(browser)
@@ -80,19 +90,6 @@ impl BrowserVersionManager {
     &self,
     browser: &str,
   ) -> Option<Vec<BrowserVersionInfo>> {
-    if crate::browser::is_chromium_target(browser) {
-      return Some(
-        self
-          .system_chromium_versions()
-          .into_iter()
-          .map(|version| BrowserVersionInfo {
-            version,
-            date: String::new(),
-          })
-          .collect(),
-      );
-    }
-
     let cached_releases = self.api_client.load_cached_versions(browser)?;
 
     // Convert cached versions to detailed info (without dates since cache doesn't store them)
@@ -109,46 +106,115 @@ impl BrowserVersionManager {
 
   /// Check if cache should be updated (expired or doesn't exist)
   pub fn should_update_cache(&self, browser: &str) -> bool {
-    if crate::browser::is_chromium_target(browser) {
-      return false;
-    }
-
     self.api_client.is_cache_expired(browser)
   }
 
-  /// Get the system Chromium target version.
+  /// Get the latest Wayfern version (fresh cache first)
   pub async fn get_browser_release_types(
     &self,
     browser: &str,
   ) -> Result<BrowserReleaseTypes, Box<dyn std::error::Error + Send + Sync>> {
-    match browser.trim().to_ascii_lowercase().as_str() {
-      "wayfern" | "chromium" => Ok(BrowserReleaseTypes {
-        stable: crate::browser::get_system_chromium_executable_path()
-          .ok()
-          .map(|_| crate::browser::SYSTEM_CHROMIUM_VERSION.to_string()),
-      }),
-      _ => Err(format!("Unsupported browser: {browser}").into()),
+    if browser != "wayfern" {
+      return Err(format!("Unsupported browser: {browser}").into());
     }
+
+    // Only trust an unexpired cache. A stale entry can point at a version that
+    // is no longer published — the downloader rejects such requests, so serving
+    // it here would make every download started from this list fail.
+    if !self.api_client.is_cache_expired(browser) {
+      if let Some(cached_versions) = self.get_cached_browser_versions_detailed(browser) {
+        return Ok(BrowserReleaseTypes {
+          stable: cached_versions.first().map(|v| v.version.clone()),
+        });
+      }
+    }
+
+    // Expired or missing cache: fetch fresh, falling back to whatever cache
+    // exists when the network is unavailable.
+    match self.fetch_browser_versions_detailed(browser, false).await {
+      Ok(detailed_versions) => Ok(BrowserReleaseTypes {
+        stable: detailed_versions.first().map(|v| v.version.clone()),
+      }),
+      Err(e) => match self.get_cached_browser_versions_detailed(browser) {
+        Some(cached_versions) => Ok(BrowserReleaseTypes {
+          stable: cached_versions.first().map(|v| v.version.clone()),
+        }),
+        None => Err(e),
+      },
+    }
+  }
+
+  /// Fetch browser versions with optional caching
+  pub async fn fetch_browser_versions(
+    &self,
+    browser: &str,
+    no_caching: bool,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let result = self
+      .fetch_browser_versions_with_count(browser, no_caching)
+      .await?;
+    Ok(result.versions)
   }
 
   /// Fetch browser versions with new count information and optional caching
   pub async fn fetch_browser_versions_with_count(
     &self,
     browser: &str,
-    _no_caching: bool,
+    no_caching: bool,
   ) -> Result<BrowserVersionsResult, Box<dyn std::error::Error + Send + Sync>> {
-    match browser.trim().to_ascii_lowercase().as_str() {
-      "wayfern" | "chromium" => {
-        let versions = self.system_chromium_versions();
-        let total_versions_count = versions.len();
-        Ok(BrowserVersionsResult {
-          versions,
-          new_versions_count: None,
-          total_versions_count,
+    // Get existing cached versions to compare and merge
+    let existing_versions = self
+      .api_client
+      .load_cached_versions(browser)
+      .unwrap_or_default();
+    let existing_set: HashSet<String> = existing_versions.into_iter().map(|r| r.version).collect();
+
+    // Fetch fresh versions from API
+    let fresh_versions = match browser {
+      "wayfern" => self.fetch_wayfern_versions(true).await?,
+      _ => return Err(format!("Unsupported browser: {browser}").into()),
+    };
+
+    let fresh_set: HashSet<String> = fresh_versions.into_iter().collect();
+
+    // Find new versions (in fresh but not in existing cache)
+    let new_versions: Vec<String> = fresh_set.difference(&existing_set).cloned().collect();
+    let new_versions_count = if existing_set.is_empty() {
+      None
+    } else {
+      Some(new_versions.len())
+    };
+
+    // Merge existing and fresh versions
+    let mut merged_versions: Vec<String> = existing_set.union(&fresh_set).cloned().collect();
+
+    // Sort versions using the existing sorting logic
+    crate::api_client::sort_versions(&mut merged_versions);
+
+    // Save the merged cache (unless explicitly bypassing cache)
+    if !no_caching {
+      let merged_releases: Vec<BrowserRelease> = merged_versions
+        .iter()
+        .map(|v| BrowserRelease {
+          version: v.clone(),
+          date: "".to_string(),
         })
+        .collect();
+      if let Err(e) = self
+        .api_client
+        .save_cached_versions(browser, &merged_releases)
+      {
+        log::error!("Failed to save merged cache for {browser}: {e}");
       }
-      _ => Err(format!("Unsupported browser: {browser}").into()),
     }
+
+    let total_versions_count = merged_versions.len();
+
+    Ok(BrowserVersionsResult {
+      versions: merged_versions,
+      new_versions_count,
+      total_versions_count,
+    })
   }
 
   /// Fetch detailed browser version information with optional caching
@@ -167,13 +233,16 @@ impl BrowserVersionManager {
     // Convert the version strings to BrowserVersionInfo
     // Since we don't have detailed date/prerelease info for cached versions,
     // we'll fetch fresh detailed info and map it to our merged versions
-    let detailed_info: Vec<BrowserVersionInfo> = merged_versions
-      .into_iter()
-      .map(|version| BrowserVersionInfo {
-        version: version.clone(),
-        date: "".to_string(),
-      })
-      .collect();
+    let detailed_info: Vec<BrowserVersionInfo> = match browser {
+      "wayfern" => merged_versions
+        .into_iter()
+        .map(|version| BrowserVersionInfo {
+          version: version.clone(),
+          date: "".to_string(),
+        })
+        .collect(),
+      _ => return Err(format!("Unsupported browser: {browser}").into()),
+    };
 
     Ok(detailed_info)
   }
@@ -183,24 +252,40 @@ impl BrowserVersionManager {
     &self,
     browser: &str,
   ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-    if !crate::browser::is_chromium_target(browser) {
-      return Err(format!("Unsupported browser: {browser}").into());
-    }
+    // Get existing cached versions
+    let existing_versions = self
+      .api_client
+      .load_cached_versions(browser)
+      .unwrap_or_default();
+    let existing_set: HashSet<String> = existing_versions.into_iter().map(|r| r.version).collect();
 
-    let versions = self.system_chromium_versions();
-    let releases: Vec<BrowserRelease> = versions
+    // Fetch new versions (always bypass cache for background updates)
+    let new_versions = self.fetch_browser_versions(browser, true).await?;
+    let new_set: HashSet<String> = new_versions.into_iter().collect();
+
+    // Find truly new versions (not in existing cache)
+    let really_new_versions: Vec<String> = new_set.difference(&existing_set).cloned().collect();
+    let new_versions_count = really_new_versions.len();
+
+    // Merge existing and new versions
+    let mut all_versions: Vec<String> = existing_set.union(&new_set).cloned().collect();
+
+    // Sort versions using the existing sorting logic
+    sort_versions(&mut all_versions);
+
+    // Save the updated cache
+    let releases: Vec<BrowserRelease> = all_versions
       .iter()
       .map(|v| BrowserRelease {
         version: v.clone(),
-        date: String::new(),
+        date: "".to_string(),
       })
       .collect();
-
     if let Err(e) = self.api_client.save_cached_versions(browser, &releases) {
-      log::error!("Failed to save system Chromium cache for {browser}: {e}");
+      log::error!("Failed to save updated cache for {browser}: {e}");
     }
 
-    Ok(0)
+    Ok(new_versions_count)
   }
 
   /// Get download information for a specific browser and version
@@ -264,11 +349,24 @@ impl BrowserVersionManager {
     (os.to_string(), arch.to_string())
   }
 
-  fn system_chromium_versions(&self) -> Vec<String> {
-    if crate::browser::get_system_chromium_executable_path().is_ok() {
-      vec![crate::browser::SYSTEM_CHROMIUM_VERSION.to_string()]
+  async fn fetch_wayfern_versions(
+    &self,
+    no_caching: bool,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let version_info = self
+      .api_client
+      .fetch_wayfern_version_with_caching(no_caching)
+      .await?;
+
+    // Check if current platform has a download available
+    if self
+      .api_client
+      .has_wayfern_compatible_download(&version_info)
+    {
+      Ok(vec![version_info.version])
     } else {
-      Vec::new()
+      // No compatible download for current platform
+      Ok(vec![])
     }
   }
 }
@@ -297,9 +395,7 @@ mod tests {
   async fn test_unsupported_browser() {
     let service = BrowserVersionManager::instance();
 
-    let result = service
-      .fetch_browser_versions_with_count("unsupported", false)
-      .await;
+    let result = service.fetch_browser_versions("unsupported", false).await;
     assert!(
       result.is_err(),
       "Should return error for unsupported browser"

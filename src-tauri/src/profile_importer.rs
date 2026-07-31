@@ -20,8 +20,8 @@ pub struct DetectedProfile {
 }
 
 fn map_browser_type(_browser: &str) -> &str {
-  // Every import source maps to Chromium — the only launchable engine.
-  "chromium"
+  // Every import source maps to Wayfern — the only launchable engine.
+  "wayfern"
 }
 
 pub struct ProfileImporter {
@@ -211,7 +211,7 @@ impl ProfileImporter {
       "brave" => "Brave",
       "zen" => "Zen Browser",
 
-      "wayfern" => "Chromium",
+      "wayfern" => "Wayfern",
       _ => "Unknown Browser",
     }
   }
@@ -259,7 +259,7 @@ impl ProfileImporter {
 
     let version = self.get_default_version_for_browser(mapped)?;
 
-    let final_wayfern_config = if crate::browser::is_chromium_target(mapped) {
+    let final_wayfern_config = if mapped == "wayfern" {
       let mut config = wayfern_config.unwrap_or_default();
 
       if let Some(ref proxy_id_val) = proxy_id {
@@ -395,12 +395,6 @@ impl ProfileImporter {
     &self,
     browser_type: &str,
   ) -> Result<String, Box<dyn std::error::Error>> {
-    if crate::browser::is_chromium_target(browser_type) {
-      crate::browser::get_system_chromium_executable_path()
-        .map_err(crate::browser::system_chromium_not_found_error)?;
-      return Ok(crate::browser::SYSTEM_CHROMIUM_VERSION.to_string());
-    }
-
     let downloaded_versions = self
       .downloaded_browsers_registry
       .get_downloaded_versions(browser_type);
@@ -523,11 +517,11 @@ mod tests {
 
   #[test]
   fn test_map_browser_type() {
-    assert_eq!(map_browser_type("chromium"), "chromium");
-    assert_eq!(map_browser_type("brave"), "chromium");
-    assert_eq!(map_browser_type("camoufox"), "chromium");
-    assert_eq!(map_browser_type("wayfern"), "chromium");
-    assert_eq!(map_browser_type("something_else"), "chromium");
+    assert_eq!(map_browser_type("chromium"), "wayfern");
+    assert_eq!(map_browser_type("brave"), "wayfern");
+    assert_eq!(map_browser_type("camoufox"), "wayfern");
+    assert_eq!(map_browser_type("wayfern"), "wayfern");
+    assert_eq!(map_browser_type("something_else"), "wayfern");
   }
 
   #[test]

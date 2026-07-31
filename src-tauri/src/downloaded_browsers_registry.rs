@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use crate::geoip_downloader::GeoIPDownloader;
 use crate::profile::{BrowserProfile, ProfileManager};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -22,6 +23,7 @@ pub struct DownloadedBrowsersRegistry {
   data: Mutex<RegistryData>,
   profile_manager: &'static ProfileManager,
   auto_updater: &'static crate::auto_updater::AutoUpdater,
+  geoip_downloader: &'static GeoIPDownloader,
 }
 
 impl DownloadedBrowsersRegistry {
@@ -30,6 +32,7 @@ impl DownloadedBrowsersRegistry {
       data: Mutex::new(RegistryData::default()),
       profile_manager: ProfileManager::instance(),
       auto_updater: crate::auto_updater::AutoUpdater::instance(),
+      geoip_downloader: GeoIPDownloader::instance(),
     }
   }
 
@@ -100,11 +103,6 @@ impl DownloadedBrowsersRegistry {
   pub fn is_browser_downloaded(&self, browser: &str, version: &str) -> bool {
     use crate::browser::{create_browser, BrowserType};
 
-    if crate::browser::is_chromium_target(browser) {
-      return version == crate::browser::SYSTEM_CHROMIUM_VERSION
-        && crate::browser::get_system_chromium_executable_path().is_ok();
-    }
-
     // First check if browser is registered
     if !self.is_browser_registered(browser, version) {
       return false;
@@ -135,14 +133,6 @@ impl DownloadedBrowsersRegistry {
   }
 
   pub fn get_downloaded_versions(&self, browser: &str) -> Vec<String> {
-    if crate::browser::is_chromium_target(browser) {
-      return if crate::browser::get_system_chromium_executable_path().is_ok() {
-        vec![crate::browser::SYSTEM_CHROMIUM_VERSION.to_string()]
-      } else {
-        Vec::new()
-      };
-    }
-
     let data = self.data.lock().unwrap();
     data
       .browsers
@@ -815,6 +805,203 @@ impl DownloadedBrowsersRegistry {
     Ok(consolidated)
   }
 
+  /// Check if browser binaries exist for all profiles and return missing binaries
+  pub async fn check_missing_binaries(
+    &self,
+  ) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error + Send + Sync>> {
+    use crate::browser::{create_browser, BrowserType};
+    // Get all profiles
+    let profiles = self
+      .profile_manager
+      .list_profiles()
+      .map_err(|e| format!("Failed to list profiles: {e}"))?;
+    let mut missing_binaries = Vec::new();
+
+    for profile in profiles {
+      let browser_type = match BrowserType::from_str(&profile.browser) {
+        Ok(bt) => bt,
+        Err(_) => {
+          log::info!(
+            "Warning: Invalid browser type '{}' for profile '{}'",
+            profile.browser,
+            profile.name
+          );
+          continue;
+        }
+      };
+
+      let browser = create_browser(browser_type.clone());
+
+      let binaries_dir = crate::app_dirs::binaries_dir();
+
+      log::info!(
+        "binaries_dir: {binaries_dir:?} for profile: {}",
+        profile.name
+      );
+
+      // Check if the version is downloaded
+      if !browser.is_version_downloaded(&profile.version, &binaries_dir) {
+        missing_binaries.push((profile.name, profile.browser, profile.version));
+      }
+    }
+
+    Ok(missing_binaries)
+  }
+
+  /// Automatically download missing binaries for all profiles
+  pub async fn ensure_all_binaries_exist(
+    &self,
+    app_handle: &tauri::AppHandle,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    // First, clean up any stale registry entries
+    if let Ok(cleaned_up) = self.verify_and_cleanup_stale_entries() {
+      if !cleaned_up.is_empty() {
+        log::info!(
+          "Cleaned up {} stale registry entries: {}",
+          cleaned_up.len(),
+          cleaned_up.join(", ")
+        );
+      }
+    }
+
+    // Consolidate browser versions - keep only latest version per browser
+    if let Ok(consolidated) = self.consolidate_browser_versions(app_handle) {
+      if !consolidated.is_empty() {
+        log::info!("Version consolidation results:");
+        for action in &consolidated {
+          log::info!("  {action}");
+        }
+      }
+    }
+
+    let missing_binaries = self.check_missing_binaries().await?;
+    let mut downloaded = Vec::new();
+
+    for (profile_name, browser, version) in missing_binaries {
+      log::info!("Downloading missing binary for profile '{profile_name}': {browser} {version}");
+
+      match crate::downloader::download_browser(
+        app_handle.clone(),
+        browser.clone(),
+        version.clone(),
+      )
+      .await
+      {
+        Ok(_) => {
+          downloaded.push(format!(
+            "{browser} {version} (for profile '{profile_name}')"
+          ));
+
+          // After successful download, update profiles that use this browser to the new version
+          match self
+            .update_profiles_to_version(app_handle, &browser, &version)
+            .await
+          {
+            Ok(updated_profiles) => {
+              if !updated_profiles.is_empty() {
+                log::info!(
+                  "Successfully updated {} profiles to version {}:",
+                  updated_profiles.len(),
+                  version
+                );
+                for update_msg in updated_profiles {
+                  log::info!("  {update_msg}");
+                }
+              }
+            }
+            Err(e) => {
+              log::error!("CRITICAL: Failed to update profiles to version {version}: {e}");
+              log::error!("This may cause profile version inconsistencies and cleanup issues");
+            }
+          }
+        }
+        Err(e) => {
+          log::error!("Failed to download {browser} {version} for profile '{profile_name}': {e}");
+        }
+      }
+    }
+
+    // Check if GeoIP database is missing for Wayfern profiles
+    if self.geoip_downloader.check_missing_geoip_database()? {
+      log::info!("GeoIP database is missing for Wayfern profiles, downloading...");
+
+      match self
+        .geoip_downloader
+        .download_geoip_database(app_handle)
+        .await
+      {
+        Ok(_) => {
+          downloaded.push("GeoIP database".to_string());
+          log::info!("GeoIP database downloaded successfully");
+        }
+        Err(e) => {
+          log::error!("Failed to download GeoIP database: {e}");
+          // Don't fail the entire operation if GeoIP download fails
+        }
+      }
+    }
+
+    Ok(downloaded)
+  }
+
+  /// Update all profiles using a specific browser to a new version
+  async fn update_profiles_to_version(
+    &self,
+    app_handle: &tauri::AppHandle,
+    browser: &str,
+    version: &str,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let profiles = self
+      .profile_manager
+      .list_profiles()
+      .map_err(|e| format!("Failed to list profiles: {e}"))?;
+
+    let mut updated_profiles = Vec::new();
+
+    for profile in profiles {
+      if profile.browser == browser && profile.version != version {
+        // Check if profile is currently running
+        if profile.process_id.is_some() {
+          log::info!(
+            "Skipping version update for running profile: {} ({})",
+            profile.name,
+            profile.version
+          );
+          continue;
+        }
+
+        // Update the profile version
+        match self.profile_manager.update_profile_version(
+          app_handle,
+          &profile.id.to_string(),
+          version,
+        ) {
+          Ok(_) => {
+            updated_profiles.push(format!(
+              "Updated profile '{}' from {} to {}",
+              profile.name, profile.version, version
+            ));
+            log::info!(
+              "Successfully updated profile '{}' to version {}",
+              profile.name,
+              version
+            );
+
+            // Save registry after each profile update to ensure consistency
+            if let Err(e) = self.save() {
+              log::warn!("Warning: Failed to save registry after profile update: {e}");
+            }
+          }
+          Err(e) => {
+            log::error!("Failed to update profile '{}': {}", profile.name, e);
+          }
+        }
+      }
+    }
+
+    Ok(updated_profiles)
+  }
+
   /// Cleanup unused binaries based on active and running profiles
   pub fn cleanup_unused_binaries(
     &self,
@@ -1072,32 +1259,160 @@ mod tests {
 
 #[tauri::command]
 pub async fn ensure_active_browsers_downloaded(
-  _app_handle: tauri::AppHandle,
+  app_handle: tauri::AppHandle,
 ) -> Result<Vec<String>, String> {
-  log::info!("Skipping browser engine auto-download; Chromium is resolved from the system");
-  Ok(Vec::new())
+  let registry = DownloadedBrowsersRegistry::instance();
+  let version_manager = crate::browser_version_manager::BrowserVersionManager::instance();
+  let mut downloaded = Vec::new();
+
+  for browser in &["wayfern"] {
+    // Check if any version is already downloaded
+    let existing = registry.get_downloaded_versions(browser);
+    if !existing.is_empty() {
+      log::info!(
+        "ensure_active: Skipping {browser}: already have {} version(s) downloaded",
+        existing.len()
+      );
+      continue;
+    }
+    log::info!("ensure_active: No {browser} versions found, will download");
+
+    // Resolve the version to download. For wayfern, only the currently
+    // published version is downloadable, so ask the API fresh — the release-type
+    // cache can be stale right after a new version is published, and the
+    // downloader rejects requests for versions that are no longer available.
+    let version = if *browser == "wayfern" {
+      match crate::api_client::ApiClient::instance()
+        .fetch_wayfern_version_with_caching(true)
+        .await
+      {
+        Ok(info) => info.version,
+        Err(e) => {
+          log::warn!("Failed to resolve current {browser} version: {e}");
+          continue;
+        }
+      }
+    } else {
+      // Get the latest release type for this browser
+      let release_types = match version_manager.get_browser_release_types(browser).await {
+        Ok(rt) => rt,
+        Err(e) => {
+          log::warn!("Failed to get release types for {browser}: {e}");
+          continue;
+        }
+      };
+
+      // Use stable version (the only release type for these browsers)
+      match release_types.stable {
+        Some(v) => v,
+        None => {
+          log::debug!("No stable version available for {browser} on this platform, skipping");
+          continue;
+        }
+      }
+    };
+
+    log::info!("Auto-downloading {browser} {version} (no versions found locally)");
+
+    // Retry transient failures a few times. Each attempt is wrapped in an overall
+    // timeout so that a hang anywhere in the download pipeline (version resolution,
+    // a stalled stream, extraction) cannot block the next browser forever. This is
+    // the core of the bug fix: Wayfern downloads proceed independently.
+    const MAX_ATTEMPTS: u32 = 3;
+    const ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+    let mut succeeded = false;
+    for attempt in 1..=MAX_ATTEMPTS {
+      let result = tokio::time::timeout(
+        ATTEMPT_TIMEOUT,
+        crate::downloader::download_browser(
+          app_handle.clone(),
+          browser.to_string(),
+          version.clone(),
+        ),
+      )
+      .await;
+
+      match result {
+        Ok(Ok(_)) => {
+          downloaded.push(format!("{browser} {version}"));
+          log::info!("Successfully auto-downloaded {browser} {version}");
+          succeeded = true;
+          break;
+        }
+        Ok(Err(e)) => {
+          log::warn!(
+            "Failed to auto-download {browser} {version} (attempt {attempt}/{MAX_ATTEMPTS}): {e}"
+          );
+        }
+        Err(_) => {
+          // The download future itself hung past the overall timeout and was dropped,
+          // so its own cleanup never ran. Clear any leftover in-progress bookkeeping
+          // (by browser prefix, as a catch-all for whatever key was in flight) and
+          // emit a terminal error event so the UI stops spinning.
+          log::warn!(
+            "Auto-download of {browser} {version} timed out after {}s (attempt {attempt}/{MAX_ATTEMPTS})",
+            ATTEMPT_TIMEOUT.as_secs()
+          );
+          crate::downloader::clear_download_state_for_browser(browser);
+          let progress = crate::downloader::DownloadProgress {
+            browser: (*browser).to_string(),
+            version: version.clone(),
+            downloaded_bytes: 0,
+            total_bytes: None,
+            percentage: 0.0,
+            speed_bytes_per_sec: 0.0,
+            eta_seconds: None,
+            stage: "error".to_string(),
+          };
+          let _ = crate::events::emit("download-progress", &progress);
+        }
+      }
+
+      if attempt < MAX_ATTEMPTS {
+        // Short backoff before retrying a transient failure.
+        let backoff = std::time::Duration::from_secs(2u64.pow(attempt - 1));
+        tokio::time::sleep(backoff).await;
+      }
+    }
+
+    if !succeeded {
+      // Do NOT abort the whole routine: continue with remaining browsers
+      // still gets its chance even though this one failed/timed out.
+      log::warn!("Giving up on auto-download of {browser} {version} after {MAX_ATTEMPTS} attempts");
+    }
+  }
+
+  Ok(downloaded)
 }
 
 #[tauri::command]
 pub fn get_downloaded_browser_versions(browser_str: String) -> Result<Vec<String>, String> {
-  if crate::browser::is_chromium_target(&browser_str)
-    && crate::browser::get_system_chromium_executable_path().is_ok()
-  {
-    return Ok(vec![crate::browser::SYSTEM_CHROMIUM_VERSION.to_string()]);
-  }
-
   let registry = DownloadedBrowsersRegistry::instance();
   Ok(registry.get_downloaded_versions(&browser_str))
 }
 
 #[tauri::command]
 pub fn is_browser_downloaded(browser_str: String, version: String) -> bool {
-  if crate::browser::is_chromium_target(&browser_str)
-    && version == crate::browser::SYSTEM_CHROMIUM_VERSION
-  {
-    return crate::browser::get_system_chromium_executable_path().is_ok();
-  }
-
   let registry = DownloadedBrowsersRegistry::instance();
   registry.is_browser_downloaded(&browser_str, &version)
+}
+
+#[tauri::command]
+pub async fn check_missing_binaries() -> Result<Vec<(String, String, String)>, String> {
+  let registry = DownloadedBrowsersRegistry::instance();
+  registry
+    .check_missing_binaries()
+    .await
+    .map_err(|e| format!("Failed to check missing binaries: {e}"))
+}
+
+#[tauri::command]
+pub async fn ensure_all_binaries_exist(
+  app_handle: tauri::AppHandle,
+) -> Result<Vec<String>, String> {
+  let registry = DownloadedBrowsersRegistry::instance();
+  registry
+    .ensure_all_binaries_exist(&app_handle)
+    .await
+    .map_err(|e| format!("Failed to ensure all binaries exist: {e}"))
 }

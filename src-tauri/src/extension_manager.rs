@@ -855,7 +855,7 @@ impl ExtensionManager {
   ) -> Result<(), Box<dyn std::error::Error>> {
     let group = self.get_group(group_id)?;
     let browser_type = match browser {
-      browser if crate::browser::is_chromium_target(browser) => "chromium",
+      "wayfern" => "chromium",
       _ => return Err(format!("Extensions are not supported for browser '{browser}'").into()),
     };
 
@@ -895,7 +895,7 @@ impl ExtensionManager {
       return Ok(Vec::new());
     }
 
-    if !crate::browser::is_chromium_target(&profile.browser) {
+    if profile.browser.as_str() != "wayfern" {
       return Ok(Vec::new());
     }
 

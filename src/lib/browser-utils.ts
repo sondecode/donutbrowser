@@ -6,17 +6,12 @@
 import { FaChrome, FaExclamationTriangle, FaFire } from "react-icons/fa";
 import { LuLock } from "react-icons/lu";
 
-export function isChromiumProfileBrowser(browserType: string): boolean {
-  return ["chromium", "wayfern"].includes(browserType.trim().toLowerCase());
-}
-
 /**
  * Map internal browser names to display names
  */
 export function getBrowserDisplayName(browserType: string): string {
   const browserNames: Record<string, string> = {
-    chromium: "Chromium",
-    wayfern: "Chromium",
+    wayfern: "Wayfern",
   };
 
   return browserNames[browserType] || browserType;
@@ -29,7 +24,6 @@ export function getBrowserDisplayName(browserType: string): string {
  */
 export function getBrowserIcon(browserType: string) {
   switch (browserType) {
-    case "chromium":
     case "wayfern":
       return FaChrome;
     default:

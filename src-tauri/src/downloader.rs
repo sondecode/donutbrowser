@@ -532,28 +532,6 @@ impl Downloader {
     browser_str: String,
     version: String,
   ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    if crate::browser::is_chromium_target(&browser_str) {
-      crate::browser::get_system_chromium_executable_path()
-        .map_err(crate::browser::system_chromium_not_found_error)?;
-
-      let system_version = crate::browser::SYSTEM_CHROMIUM_VERSION.to_string();
-      let progress = DownloadProgress {
-        browser: "chromium".to_string(),
-        version: system_version.clone(),
-        downloaded_bytes: 0,
-        total_bytes: None,
-        percentage: 100.0,
-        speed_bytes_per_sec: 0.0,
-        eta_seconds: Some(0.0),
-        stage: "completed".to_string(),
-      };
-      let _ = events::emit("download-progress", &progress);
-      log::info!(
-        "Skipping browser engine download for {browser_str} {version}; using system Chromium"
-      );
-      return Ok(system_version);
-    }
-
     // Only check Wayfern terms if Wayfern is already downloaded
     let terms_manager = crate::wayfern_terms::WayfernTermsManager::instance();
     if terms_manager.is_wayfern_downloaded() && !terms_manager.is_terms_accepted() {
@@ -907,8 +885,7 @@ pub fn is_downloading(browser: &str, version: &str) -> bool {
 /// by an outer timeout) before its own error path could run. Matches by the
 /// `"{browser}-"` key prefix rather than an exact version so no stuck key is left
 /// behind even when the caller doesn't know which version was actually in flight.
-#[cfg(test)]
-fn clear_download_state_for_browser(browser: &str) {
+pub fn clear_download_state_for_browser(browser: &str) {
   let prefix = format!("{browser}-");
   {
     let mut downloading = DOWNLOADING_BROWSERS.lock().unwrap();

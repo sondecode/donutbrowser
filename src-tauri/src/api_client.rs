@@ -64,7 +64,6 @@ impl Ord for VersionComponent {
   }
 }
 
-#[cfg(test)]
 pub fn sort_versions(versions: &mut [String]) {
   versions.sort_by(|a, b| {
     let version_a = VersionComponent::parse(a);
@@ -327,6 +326,11 @@ impl ApiClient {
       .downloads
       .get(&platform_key)
       .and_then(|url| url.clone())
+  }
+
+  /// Check if Wayfern has a compatible download for current platform
+  pub fn has_wayfern_compatible_download(&self, version_info: &WayfernVersionInfo) -> bool {
+    self.get_wayfern_download_url(version_info).is_some()
   }
 
   fn get_platform_info() -> (String, String) {

@@ -89,9 +89,7 @@ impl GeoIPDownloader {
       .list_profiles()
       .map_err(|e| format!("Failed to list profiles: {e}"))?;
 
-    let needs_geoip = profiles
-      .iter()
-      .any(|profile| crate::browser::is_chromium_target(&profile.browser));
+    let needs_geoip = profiles.iter().any(|profile| profile.browser == "wayfern");
 
     if needs_geoip {
       return Ok(!Self::is_geoip_database_available() || Self::is_geoip_stale());

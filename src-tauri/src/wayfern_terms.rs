@@ -75,10 +75,6 @@ impl WayfernTermsManager {
   }
 
   pub fn is_terms_accepted(&self) -> bool {
-    if crate::browser::get_system_chromium_executable_path().is_ok() {
-      return true;
-    }
-
     let license_file = self.get_license_file_path();
 
     if !license_file.exists() {
@@ -102,10 +98,6 @@ impl WayfernTermsManager {
   }
 
   pub fn is_wayfern_downloaded(&self) -> bool {
-    if crate::browser::get_system_chromium_executable_path().is_ok() {
-      return true;
-    }
-
     let registry = DownloadedBrowsersRegistry::instance();
     let versions = registry.get_downloaded_versions("wayfern");
     !versions.is_empty()
@@ -134,10 +126,6 @@ impl WayfernTermsManager {
   }
 
   pub async fn accept_terms(&self) -> Result<(), String> {
-    if crate::browser::get_system_chromium_executable_path().is_ok() {
-      return Ok(());
-    }
-
     let executable_path = self.get_any_wayfern_executable().ok_or_else(|| {
       "No Wayfern browser downloaded. Please download a Wayfern browser version first.".to_string()
     })?;
