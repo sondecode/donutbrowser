@@ -132,6 +132,14 @@ struct CdpTarget {
 }
 
 impl WayfernManager {
+  /// Used only when the running binary can't be asked for its own version.
+  const DEFAULT_CHROME_MAJOR: &'static str = "120";
+  /// Chrome pads its brand list with one deliberately meaningless entry to keep
+  /// parsers honest. The exact string and version rotate between releases;
+  /// these are what current Chromium builds emit.
+  const GREASE_BRAND: &'static str = "Not?A_Brand";
+  const GREASE_VERSION: &'static str = "24";
+
   fn new() -> Self {
     Self {
       inner: Arc::new(AsyncMutex::new(WayfernManagerInner {
@@ -599,34 +607,150 @@ impl WayfernManager {
       || error.contains("not found")
   }
 
-  fn fallback_user_agent(os: &str) -> (&'static str, &'static str) {
+  fn fallback_user_agent(os: &str, major: &str) -> (&'static str, String) {
     match os {
       "windows" => (
         "Win32",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        format!("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
       ),
       "macos" => (
         "MacIntel",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        format!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
       ),
       "android" => (
         "Linux armv8l",
-        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        format!("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Mobile Safari/537.36"),
       ),
       "ios" => (
         "iPhone",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1",
+        format!("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/{major}.0.0.0 Mobile/15E148 Safari/604.1"),
       ),
       _ => (
         "Linux x86_64",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        format!("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
       ),
     }
+  }
+
+  fn leading_digits(value: &str) -> Option<String> {
+    let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
+    (!digits.is_empty()).then_some(digits)
+  }
+
+  /// Major version out of a `Chrome/152.0.6167.85` token, as it appears in
+  /// `Browser.getVersion`'s `product` field and in every Chromium UA string.
+  fn chrome_major_version(product: &str) -> Option<String> {
+    ["Chrome/", "Chromium/", "CriOS/"]
+      .iter()
+      .find_map(|token| product.split(token).nth(1))
+      .and_then(Self::leading_digits)
+  }
+
+  /// Version string of the binary actually rendering the page, so a spoofed UA
+  /// never claims a different engine than the one running.
+  async fn detect_chrome_version(&self, ws_url: &str) -> Option<String> {
+    match self
+      .send_cdp_command(ws_url, "Browser.getVersion", json!({}))
+      .await
+    {
+      Ok(result) => result
+        .get("product")
+        .and_then(|v| v.as_str())
+        .and_then(|product| product.split('/').nth(1))
+        .map(str::to_string),
+      Err(e) => {
+        log::warn!("Failed to read Chromium version over CDP: {e}");
+        None
+      }
+    }
+  }
+
+  /// CDP `userAgentMetadata` for `Network.setUserAgentOverride`. Overriding the
+  /// UA string alone leaves client hints untouched, so `Sec-CH-UA` keeps
+  /// answering with the real binary's brands — on a plain Chromium build that
+  /// means no `Google Chrome` brand at all, and a version that contradicts the
+  /// spoofed UA. Returns `None` for iOS, where client hints don't exist and
+  /// sending brands would be a stronger tell than sending nothing.
+  fn build_user_agent_metadata(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    user_agent: &str,
+  ) -> Option<serde_json::Value> {
+    let read = |key: &str| {
+      obj
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+    };
+
+    let platform_hint = read("platform").unwrap_or_default();
+    if user_agent.contains("CriOS/")
+      || platform_hint.starts_with("iPhone")
+      || platform_hint.starts_with("iPad")
+    {
+      return None;
+    }
+
+    let major = Self::chrome_major_version(user_agent)
+      .or_else(|| read("brandVersion").and_then(Self::leading_digits))
+      .unwrap_or_else(|| Self::DEFAULT_CHROME_MAJOR.to_string());
+    // `Sec-CH-UA-Full-Version-List` carries the real build number in Chrome;
+    // a `.0.0.0` full version is itself a tell, so prefer a stored full
+    // version whenever it agrees with the major the UA claims.
+    let full_version = read("brandVersion")
+      .filter(|v| v.matches('.').count() >= 3 && Self::leading_digits(v).as_deref() == Some(&major))
+      .map(str::to_string)
+      .unwrap_or_else(|| format!("{major}.0.0.0"));
+
+    let mobile = user_agent.contains("Mobile");
+    let (platform, default_platform_version) = if platform_hint.starts_with("Win") {
+      ("Windows", "15.0.0")
+    } else if platform_hint.starts_with("Mac") {
+      ("macOS", "15.6.0")
+    } else if mobile {
+      ("Android", "13.0.0")
+    } else {
+      ("Linux", "")
+    };
+
+    // Chrome on Android reports both of these as empty strings.
+    let (architecture, bitness) = if platform == "Android" {
+      ("", "")
+    } else {
+      (read("architecture").unwrap_or("x86"), "64")
+    };
+
+    // The old default branded profiles as bare Chromium, which is exactly the
+    // fingerprint this metadata exists to remove.
+    let vendor_brand = read("brand")
+      .filter(|brand| !brand.eq_ignore_ascii_case("chromium"))
+      .unwrap_or("Google Chrome");
+
+    let brands = |version: &str| {
+      json!([
+        { "brand": Self::GREASE_BRAND, "version": Self::GREASE_VERSION },
+        { "brand": "Chromium", "version": version },
+        { "brand": vendor_brand, "version": version },
+      ])
+    };
+
+    Some(json!({
+      "brands": brands(&major),
+      "fullVersionList": brands(&full_version),
+      "fullVersion": full_version,
+      "platform": platform,
+      "platformVersion": read("platformVersion").unwrap_or(default_platform_version),
+      "architecture": architecture,
+      "bitness": bitness,
+      "model": read("model").unwrap_or_default(),
+      "mobile": mobile,
+      "wow64": false,
+    }))
   }
 
   async fn build_system_chromium_fingerprint(
     profile: &BrowserProfile,
     config: &WayfernConfig,
+    chrome_version: Option<&str>,
   ) -> (serde_json::Value, bool) {
     let os = config
       .os
@@ -638,7 +762,12 @@ impl WayfernManager {
       } else {
         "windows"
       });
-    let (platform, user_agent) = Self::fallback_user_agent(os);
+    let brand_version = chrome_version
+      .map(str::to_string)
+      .unwrap_or_else(|| format!("{}.0.0.0", Self::DEFAULT_CHROME_MAJOR));
+    let major = Self::leading_digits(&brand_version)
+      .unwrap_or_else(|| Self::DEFAULT_CHROME_MAJOR.to_string());
+    let (platform, user_agent) = Self::fallback_user_agent(os, &major);
     let screen_width = config
       .screen_max_width
       .or(config.screen_min_width)
@@ -657,8 +786,8 @@ impl WayfernManager {
       "userAgent": user_agent,
       "platform": platform,
       "platformVersion": "",
-      "brand": "Chromium",
-      "brandVersion": "120",
+      "brand": "Google Chrome",
+      "brandVersion": brand_version,
       "hardwareConcurrency": hardware_concurrency,
       "maxTouchPoints": if matches!(os, "android" | "ios") { 5 } else { 0 },
       "deviceMemory": 8,
@@ -729,6 +858,9 @@ impl WayfernManager {
       let mut params = json!({ "userAgent": user_agent });
       if let Some(platform) = read_str("platform") {
         params["platform"] = json!(platform);
+      }
+      if let Some(metadata) = Self::build_user_agent_metadata(obj, user_agent) {
+        params["userAgentMetadata"] = metadata;
       }
       if let Err(e) = self
         .send_cdp_command(ws_url, "Network.setUserAgentOverride", params)
@@ -983,18 +1115,21 @@ impl WayfernManager {
       .await;
 
     if let Err(e) = refresh_result {
-      cleanup().await;
       let message = e.to_string();
       if Self::is_wayfern_cdp_unsupported(&message) {
         log::warn!(
           "System Chromium does not support Wayfern.refreshFingerprint; using fallback Chromium fingerprint data"
         );
+        // Read the version off the still-running browser, before cleanup kills it.
+        let chrome_version = self.detect_chrome_version(&ws_url).await;
+        cleanup().await;
         let (fallback, geolocation_applied) =
-          Self::build_system_chromium_fingerprint(profile, config).await;
+          Self::build_system_chromium_fingerprint(profile, config, chrome_version.as_deref()).await;
         let fingerprint_json = serde_json::to_string(&fallback)
           .map_err(|e| format!("Failed to serialize fallback fingerprint: {e}"))?;
         return Ok((fingerprint_json, geolocation_applied));
       }
+      cleanup().await;
       return Err(format!("Failed to refresh fingerprint: {e}").into());
     }
 
@@ -1917,6 +2052,141 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  fn metadata_for(fingerprint: serde_json::Value) -> Option<serde_json::Value> {
+    let obj = fingerprint.as_object().unwrap().clone();
+    let user_agent = obj.get("userAgent").unwrap().as_str().unwrap().to_string();
+    WayfernManager::build_user_agent_metadata(&obj, &user_agent)
+  }
+
+  #[test]
+  fn chrome_major_version_parses_every_chromium_token() {
+    assert_eq!(
+      WayfernManager::chrome_major_version("Chrome/152.0.6167.85").as_deref(),
+      Some("152")
+    );
+    assert_eq!(
+      WayfernManager::chrome_major_version("HeadlessChrome/120.0.0.0").as_deref(),
+      Some("120")
+    );
+    assert_eq!(
+      WayfernManager::chrome_major_version(
+        "Mozilla/5.0 (iPhone) CriOS/152.0.0.0 Mobile/15E148 Safari/604.1"
+      )
+      .as_deref(),
+      Some("152")
+    );
+    assert_eq!(WayfernManager::chrome_major_version("Firefox/130.0"), None);
+  }
+
+  #[test]
+  fn user_agent_metadata_advertises_google_chrome_brand() {
+    let metadata = metadata_for(json!({
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+      "platform": "MacIntel",
+      "brand": "Chromium",
+      "brandVersion": "152.0.6167.85",
+    }))
+    .expect("desktop profiles must send client hints");
+
+    // The bare-Chromium brand list is the tell this metadata exists to remove.
+    let brands: Vec<(String, String)> = metadata["brands"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|b| {
+        (
+          b["brand"].as_str().unwrap().to_string(),
+          b["version"].as_str().unwrap().to_string(),
+        )
+      })
+      .collect();
+    assert_eq!(
+      brands,
+      vec![
+        ("Not?A_Brand".to_string(), "24".to_string()),
+        ("Chromium".to_string(), "152".to_string()),
+        ("Google Chrome".to_string(), "152".to_string()),
+      ]
+    );
+
+    assert_eq!(metadata["platform"], json!("macOS"));
+    assert_eq!(metadata["platformVersion"], json!("15.6.0"));
+    assert_eq!(metadata["mobile"], json!(false));
+    assert_eq!(metadata["bitness"], json!("64"));
+    // Real Chrome reports the build number here, never a padded `.0.0.0`.
+    assert_eq!(
+      metadata["fullVersionList"][2]["version"],
+      json!("152.0.6167.85")
+    );
+  }
+
+  #[test]
+  fn user_agent_metadata_version_follows_the_user_agent_string() {
+    // A stored brandVersion left over from another build must never contradict
+    // the UA string actually being sent.
+    let metadata = metadata_for(json!({
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+      "platform": "Win32",
+      "brandVersion": "120",
+    }))
+    .unwrap();
+
+    assert_eq!(metadata["brands"][1]["version"], json!("152"));
+    assert_eq!(
+      metadata["fullVersionList"][1]["version"],
+      json!("152.0.0.0")
+    );
+    assert_eq!(metadata["platform"], json!("Windows"));
+  }
+
+  #[test]
+  fn user_agent_metadata_preserves_a_custom_vendor_brand() {
+    let metadata = metadata_for(json!({
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+      "platform": "Linux x86_64",
+      "brand": "Brave",
+    }))
+    .unwrap();
+
+    assert_eq!(metadata["brands"][2]["brand"], json!("Brave"));
+    assert_eq!(metadata["platform"], json!("Linux"));
+    assert_eq!(metadata["platformVersion"], json!(""));
+  }
+
+  #[test]
+  fn user_agent_metadata_matches_android_conventions() {
+    let metadata = metadata_for(json!({
+      "userAgent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+      "platform": "Linux armv8l",
+    }))
+    .unwrap();
+
+    assert_eq!(metadata["platform"], json!("Android"));
+    assert_eq!(metadata["mobile"], json!(true));
+    // Chrome on Android leaves both of these empty.
+    assert_eq!(metadata["architecture"], json!(""));
+    assert_eq!(metadata["bitness"], json!(""));
+  }
+
+  #[test]
+  fn user_agent_metadata_skipped_on_ios() {
+    // iOS browsers implement no client hints; brands there would be a tell.
+    assert!(metadata_for(json!({
+      "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/152.0.0.0 Mobile/15E148 Safari/604.1",
+      "platform": "iPhone",
+    }))
+    .is_none());
+  }
+
+  #[test]
+  fn fallback_user_agent_carries_the_detected_version() {
+    let (platform, user_agent) = WayfernManager::fallback_user_agent("macos", "152");
+    assert_eq!(platform, "MacIntel");
+    assert!(user_agent.contains("Chrome/152.0.0.0"));
+    let (_, ios) = WayfernManager::fallback_user_agent("ios", "152");
+    assert!(ios.contains("CriOS/152.0.0.0"));
+  }
 
   #[test]
   fn remote_socks_url_detection() {

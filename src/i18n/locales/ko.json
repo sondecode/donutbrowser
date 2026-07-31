@@ -2105,6 +2105,7 @@
       "wait_for_load": "로딩 대기",
       "scroll": "스크롤",
       "click_random_link": "무작위 링크 열기",
+      "dismiss_popup": "팝업 닫는 중",
       "dwell": "페이지에 머무르기",
       "screenshot": "스크린샷 촬영",
       "close_profile": "프로필 종료"

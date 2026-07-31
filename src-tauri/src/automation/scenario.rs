@@ -78,6 +78,14 @@ pub enum Step {
     #[serde(default = "default_load_timeout")]
     timeout_secs: u64,
   },
+  /// Close a modal that is covering the page — a survey invite, a newsletter
+  /// prompt, an app interstitial — by clicking its close control, falling back to
+  /// Escape. A no-op when nothing is in the way, so it is safe to place anywhere
+  /// and never fails a run on its own.
+  ///
+  /// `click_random_link` already does this before each attempt; this step exists
+  /// for the other reason a popup hurts: it lands in screenshots.
+  DismissPopup,
   /// Stay on the page for a randomized duration in `[min_secs, max_secs]`.
   Dwell { min_secs: u64, max_secs: u64 },
   /// Capture the viewport (or the full page) to a PNG under the run's folder.
@@ -111,6 +119,7 @@ impl Step {
       Step::WaitForLoad { .. } => "wait_for_load",
       Step::Scroll { .. } => "scroll",
       Step::ClickRandomLink { .. } => "click_random_link",
+      Step::DismissPopup => "dismiss_popup",
       Step::Dwell { .. } => "dwell",
       Step::Screenshot { .. } => "screenshot",
       Step::CloseProfile => "close_profile",
@@ -312,7 +321,7 @@ impl Scenario {
           }
         }
         Step::WaitForLoad { .. } | Step::ClickRandomLink { .. } => {}
-        Step::Screenshot { .. } | Step::CloseProfile => {}
+        Step::Screenshot { .. } | Step::CloseProfile | Step::DismissPopup => {}
       }
     }
 
@@ -484,6 +493,11 @@ pub fn step_schema() -> serde_json::Value {
           "wait_for_load": "bool (default true)",
           "timeout_secs": "number (default 30)",
         },
+      },
+      {
+        "type": "dismiss_popup",
+        "fields": {},
+        "note": "Closes a modal covering the page (survey invite, newsletter prompt) by clicking its close control, falling back to Escape. Does nothing when no popup is up, and never fails the run. click_random_link already does this automatically before each attempt — place this step before a screenshot so a popup does not end up in the capture.",
       },
       {
         "type": "dwell",
@@ -785,6 +799,15 @@ mod tests {
     assert!(variable.choices.is_empty());
     assert!(!variable.unique);
 
+    // A unit variant needs no fields, and must round-trip under its snake_case tag.
+    let step: Step = serde_json::from_str(r#"{"type":"dismiss_popup"}"#).unwrap();
+    assert_eq!(step, Step::DismissPopup);
+    assert_eq!(step.kind(), "dismiss_popup");
+    assert_eq!(
+      serde_json::to_value(&step).unwrap(),
+      serde_json::json!({ "type": "dismiss_popup" })
+    );
+
     let step: Step = serde_json::from_str(r#"{"type":"scroll"}"#).unwrap();
     assert_eq!(
       step,
@@ -810,6 +833,7 @@ mod tests {
       "wait_for_load",
       "scroll",
       "click_random_link",
+      "dismiss_popup",
       "dwell",
       "screenshot",
       "close_profile",

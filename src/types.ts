@@ -574,6 +574,7 @@ export type AutomationStep =
       wait_for_load: boolean;
       timeout_secs: number;
     }
+  | { type: "dismiss_popup" }
   | { type: "dwell"; min_secs: number; max_secs: number }
   | { type: "screenshot"; full_page: boolean }
   | { type: "close_profile" };

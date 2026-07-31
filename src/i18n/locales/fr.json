@@ -2105,6 +2105,7 @@
       "wait_for_load": "Attente du chargement",
       "scroll": "Défilement",
       "click_random_link": "Ouverture d'un lien aléatoire",
+      "dismiss_popup": "Fermeture d'une fenêtre surgissante",
       "dwell": "Reste sur la page",
       "screenshot": "Capture d'écran",
       "close_profile": "Fermeture du profil"

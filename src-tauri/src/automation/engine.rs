@@ -632,6 +632,11 @@ async fn execute_step(
       )
       .await
     }
+    Step::DismissPopup => {
+      // A popup that refuses to close is not a reason to fail the run.
+      dismiss_overlay(ws_url, cursor, cancel).await?;
+      Ok(())
+    }
     // Handled by the caller, which needs run state the step executor lacks.
     Step::Dwell { .. } | Step::Screenshot { .. } | Step::CloseProfile => Ok(()),
   }
@@ -946,67 +951,255 @@ const MEASURE_LINK_JS: &str = r#"
   if (!link || !link.isConnected) return JSON.stringify({ ok: false });
 
   const rect = link.getBoundingClientRect();
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height / 2;
-  const inViewport =
-    rect.top >= 0 && rect.left >= 0 &&
-    rect.bottom <= window.innerHeight && rect.right <= window.innerWidth &&
-    rect.width >= 4 && rect.height >= 4;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  // What matters is whether a clickable *point* is on screen, not whether the
+  // whole element fits. Demanding full containment is unsatisfiable for a tile
+  // taller than the viewport or an anchor in a horizontal carousel, and the
+  // caller can only wheel vertically — so that spent the entire scroll budget
+  // and then rejected a link that was plainly clickable all along.
+  const x = Math.max(rect.left, 0);
+  const y = Math.max(rect.top, 0);
+  const width = Math.min(rect.right, vw) - x;
+  const height = Math.min(rect.bottom, vh) - y;
+  const visible = width >= 4 && height >= 4;
+
+  // Enough of it showing that wheeling further buys nothing.
+  const comfortable =
+    visible &&
+    width >= Math.min(rect.width, 24) &&
+    height >= Math.min(rect.height, 24);
 
   let hit = false;
-  if (inViewport) {
-    const at = document.elementFromPoint(cx, cy);
+  if (visible) {
+    const at = document.elementFromPoint(x + width / 2, y + height / 2);
     hit = at !== null && (at === link || link.contains(at) || at.contains(link));
   }
 
   return JSON.stringify({
     ok: true,
     href: link.href,
-    inViewport,
-    hit,
-    rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-    viewport: { width: window.innerWidth, height: window.innerHeight },
+    clickable: visible && hit,
+    comfortable: comfortable && hit,
+    // The visible part only, so a sampled click point always lands on screen.
+    rect: { x, y, width, height },
+    viewport: { width: vw, height: vh },
     // How far the link centre sits from the viewport centre, so the caller can
     // wheel towards it instead of jumping the scroll position programmatically.
-    offsetFromCenter: cy - window.innerHeight / 2,
+    offsetFromCenter: rect.top + rect.height / 2 - vh / 2,
   });
 })()
 "#;
 
-/// How many different links to try before giving up on the step.
-const MAX_LINK_ATTEMPTS: usize = 3;
+/// Locate a modal that is covering the page, plus the control that would close
+/// it.
+///
+/// Retail sites open these on their own schedule — a timer, exit intent, scroll
+/// depth — so a scenario cannot schedule around them. While one is up it owns
+/// every point in the viewport, so `elementFromPoint` returns the modal for every
+/// candidate link and the whole step fails its hit test.
+const FIND_OVERLAY_JS: &str = r#"
+(() => {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const at = document.elementFromPoint(vw / 2, vh / 2);
+  if (!at) return JSON.stringify({ blocked: false });
+
+  // Walk up from the centre of the screen to whatever is stacked over the page.
+  let overlay = null;
+  for (let node = at; node && node !== document.body; node = node.parentElement) {
+    if (node.matches('[role="dialog"],[aria-modal="true"],dialog')) { overlay = node; break; }
+    const style = getComputedStyle(node);
+    if (style.position === 'fixed' || style.position === 'sticky') { overlay = node; break; }
+  }
+  if (!overlay) return JSON.stringify({ blocked: false });
+
+  // A sticky header or a cookie strip is not worth interrupting the run for. Only
+  // treat this as blocking when it owns a real share of the viewport.
+  const box = overlay.getBoundingClientRect();
+  if (box.width * box.height < vw * vh * 0.12) return JSON.stringify({ blocked: false });
+
+  // A survey rendered in an iframe has a document we cannot reach from here, so
+  // there is no close button to find — the caller falls back to Escape.
+  const framed = overlay.tagName === 'IFRAME' || overlay.querySelector('iframe') !== null;
+
+  // Only ever the decline side of the choice. "Yes I'll Help" must never match.
+  const DECLINE = [
+    'not right now', 'not now', 'no thanks', 'no, thanks', 'maybe later',
+    'decline', 'dismiss', 'close', 'skip', 'continue without', 'no thank you',
+  ];
+  const norm = (value) => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  let control = overlay.querySelector(
+    '[aria-label*="close" i],[aria-label*="dismiss" i],[title*="close" i],' +
+    '[data-testid*="close" i],.modal-close,.dialog-close,.close'
+  );
+  if (!control) {
+    const buttons = Array.from(overlay.querySelectorAll('button,[role="button"]'));
+    control =
+      buttons.find((b) => DECLINE.includes(norm(b.textContent))) ||
+      buttons.find((b) => DECLINE.some((phrase) => norm(b.textContent).startsWith(phrase))) ||
+      null;
+  }
+  if (!control) return JSON.stringify({ blocked: true, framed, control: null });
+
+  const r = control.getBoundingClientRect();
+  const x = Math.max(r.left, 0);
+  const y = Math.max(r.top, 0);
+  const width = Math.min(r.right, vw) - x;
+  const height = Math.min(r.bottom, vh) - y;
+  if (width < 4 || height < 4) return JSON.stringify({ blocked: true, framed, control: null });
+
+  return JSON.stringify({ blocked: true, framed, control: { x, y, width, height } });
+})()
+"#;
+
+/// Press and release Escape as a real key event, the way every other input here
+/// is real. The fallback for a modal with no reachable close control — an iframe
+/// survey, or markup we don't recognise.
+async fn press_escape(ws_url: &str) -> Result<(), String> {
+  let key_event = |kind: &str| {
+    serde_json::json!({
+      "type": kind,
+      "key": "Escape",
+      "code": "Escape",
+      "windowsVirtualKeyCode": 27,
+      "nativeVirtualKeyCode": 27,
+    })
+  };
+
+  cdp::send_timed_sequence(
+    ws_url,
+    &[
+      cdp::TimedCommand {
+        at: 0.0,
+        method: "Input.dispatchKeyEvent".to_string(),
+        params: key_event("keyDown"),
+      },
+      cdp::TimedCommand {
+        at: human_mouse::press_hold_secs(),
+        method: "Input.dispatchKeyEvent".to_string(),
+        params: key_event("keyUp"),
+      },
+    ],
+  )
+  .await
+}
+
+/// What `FIND_OVERLAY_JS` saw.
+#[derive(Debug, Clone, PartialEq)]
+enum Overlay {
+  None,
+  /// Blocking, with a close control at this visible rect.
+  Closable(human_mouse::Rect),
+  /// Blocking, but nothing clickable was found — Escape is the only lever.
+  Opaque,
+}
+
+fn parse_overlay(parsed: &serde_json::Value) -> Overlay {
+  if parsed.get("blocked").and_then(|v| v.as_bool()) != Some(true) {
+    return Overlay::None;
+  }
+
+  let number = |value: Option<&serde_json::Value>| value.and_then(|v| v.as_f64()).unwrap_or(0.0);
+  let Some(control) = parsed.get("control").filter(|c| c.is_object()) else {
+    return Overlay::Opaque;
+  };
+
+  Overlay::Closable(human_mouse::Rect {
+    x: number(control.get("x")),
+    y: number(control.get("y")),
+    width: number(control.get("width")),
+    height: number(control.get("height")),
+  })
+}
+
+async fn find_overlay(ws_url: &str) -> Result<Overlay, String> {
+  let raw = cdp::evaluate(ws_url, FIND_OVERLAY_JS).await?;
+  let parsed: serde_json::Value = raw
+    .as_str()
+    .and_then(|s| serde_json::from_str(s).ok())
+    .unwrap_or(serde_json::json!({ "blocked": false }));
+  Ok(parse_overlay(&parsed))
+}
+
+/// Clear a modal that is covering the page. Returns whether the way is clear.
+///
+/// A no-op when nothing is blocking, so callers can invoke it freely — and it
+/// never fails a run just because a popup was stubborn.
+async fn dismiss_overlay(
+  ws_url: &str,
+  cursor: &mut PageCursor,
+  cancel: &Arc<AtomicBool>,
+) -> Result<bool, String> {
+  let overlay = find_overlay(ws_url).await?;
+  if overlay == Overlay::None {
+    return Ok(true);
+  }
+
+  if let Overlay::Closable(rect) = overlay {
+    log::info!("[automation] popup is covering the page, clicking its close control");
+    cursor
+      .click_at(ws_url, human_mouse::sample_click_point(rect))
+      .await?;
+    if !sleep_cancellable(std::time::Duration::from_millis(1200), cancel).await {
+      return Err("cancelled".to_string());
+    }
+    if find_overlay(ws_url).await? == Overlay::None {
+      return Ok(true);
+    }
+  }
+
+  log::info!("[automation] popup still up, pressing Escape");
+  press_escape(ws_url).await?;
+  if !sleep_cancellable(std::time::Duration::from_millis(1200), cancel).await {
+    return Err("cancelled".to_string());
+  }
+
+  let cleared = find_overlay(ws_url).await? == Overlay::None;
+  if !cleared {
+    log::info!("[automation] popup would not close; continuing anyway");
+  }
+  Ok(cleared)
+}
+
+/// How many different links to try before giving up on the step. Retail pages
+/// serve quick-view anchors that swallow a click without navigating, so the
+/// budget has to tolerate several dead candidates in a row.
+const MAX_LINK_ATTEMPTS: usize = 5;
 /// Cap on wheel bursts spent bringing one link into view.
 const MAX_SCROLL_INTO_VIEW_BURSTS: usize = 12;
+/// Below this much vertical movement between bursts, wheeling has stopped
+/// achieving anything and we should take what we already have.
+const SCROLL_PROGRESS_EPSILON: f64 = 8.0;
 
 #[derive(Debug, Clone)]
 struct LinkMeasurement {
-  in_viewport: bool,
-  hit: bool,
+  /// A point inside the visible part passed the hit test.
+  clickable: bool,
+  /// Enough of the link is on screen that wheeling further buys nothing.
+  comfortable: bool,
+  /// The *visible* part of the link, so a sampled click point stays on screen.
   rect: human_mouse::Rect,
   viewport: (f64, f64),
   offset_from_center: f64,
 }
 
-async fn measure_tagged_link(ws_url: &str) -> Result<Option<LinkMeasurement>, String> {
-  let raw = cdp::evaluate(ws_url, MEASURE_LINK_JS).await?;
-  let parsed: serde_json::Value = raw
-    .as_str()
-    .and_then(|s| serde_json::from_str(s).ok())
-    .unwrap_or(serde_json::json!({ "ok": false }));
-
+/// Pure half of the measurement, split out so the parsing is testable without a
+/// live page.
+fn parse_link_measurement(parsed: &serde_json::Value) -> Option<LinkMeasurement> {
   if parsed.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-    return Ok(None);
+    return None;
   }
 
   let number = |value: Option<&serde_json::Value>| value.and_then(|v| v.as_f64()).unwrap_or(0.0);
+  let flag = |key: &str| parsed.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
   let rect = parsed.get("rect");
 
-  Ok(Some(LinkMeasurement {
-    in_viewport: parsed
-      .get("inViewport")
-      .and_then(|v| v.as_bool())
-      .unwrap_or(false),
-    hit: parsed.get("hit").and_then(|v| v.as_bool()).unwrap_or(false),
+  Some(LinkMeasurement {
+    clickable: flag("clickable"),
+    comfortable: flag("comfortable"),
     rect: human_mouse::Rect {
       x: number(rect.and_then(|r| r.get("x"))),
       y: number(rect.and_then(|r| r.get("y"))),
@@ -1018,7 +1211,17 @@ async fn measure_tagged_link(ws_url: &str) -> Result<Option<LinkMeasurement>, St
       number(parsed.get("viewport").and_then(|v| v.get("height"))).max(1.0),
     ),
     offset_from_center: number(parsed.get("offsetFromCenter")),
-  }))
+  })
+}
+
+async fn measure_tagged_link(ws_url: &str) -> Result<Option<LinkMeasurement>, String> {
+  let raw = cdp::evaluate(ws_url, MEASURE_LINK_JS).await?;
+  let parsed: serde_json::Value = raw
+    .as_str()
+    .and_then(|s| serde_json::from_str(s).ok())
+    .unwrap_or(serde_json::json!({ "ok": false }));
+
+  Ok(parse_link_measurement(&parsed))
 }
 
 /// Wheel the tagged link into view. Deliberately not `scrollIntoView()`: that
@@ -1029,6 +1232,8 @@ async fn wheel_link_into_view(
   cursor: &mut PageCursor,
   cancel: &Arc<AtomicBool>,
 ) -> Result<Option<LinkMeasurement>, String> {
+  let mut previous_offset: Option<f64> = None;
+
   for burst in 0..MAX_SCROLL_INTO_VIEW_BURSTS {
     if cancel.load(Ordering::SeqCst) {
       return Err("cancelled".to_string());
@@ -1037,9 +1242,20 @@ async fn wheel_link_into_view(
     let Some(measurement) = measure_tagged_link(ws_url).await? else {
       return Ok(None);
     };
-    if measurement.in_viewport {
+    if measurement.comfortable {
       return Ok(Some(measurement));
     }
+
+    // Wheeling only moves the page vertically. Once the offset stops shrinking
+    // we are either against a scroll boundary or the link overflows sideways —
+    // either way further bursts change nothing, so stop burning the budget and
+    // let the caller decide on what we already measured.
+    if previous_offset.is_some_and(|previous| {
+      (previous - measurement.offset_from_center).abs() < SCROLL_PROGRESS_EPSILON
+    }) {
+      return Ok(Some(measurement));
+    }
+    previous_offset = Some(measurement.offset_from_center);
 
     let (width, height) = measurement.viewport;
     if burst == 0 {
@@ -1105,6 +1321,11 @@ async fn click_random_link(
       return Err("cancelled".to_string());
     }
 
+    // A popup that opened during the preceding dwell owns every point in the
+    // viewport, so every candidate would fail its hit test. Clear the way before
+    // judging the page rather than burning the attempt budget on a modal.
+    dismiss_overlay(ws_url, cursor, cancel).await?;
+
     // `document.readyState` is a useless "did we navigate?" signal on its own:
     // right after a click it still reads `complete` for the *old* page. The URL
     // is what actually proves the page moved.
@@ -1158,13 +1379,13 @@ async fn click_random_link(
       continue;
     };
 
-    if !measurement.in_viewport || !measurement.hit {
+    if !measurement.clickable {
       // Something is covering it, or it moved out from under us. Another link is
       // a better bet than clicking coordinates we know are wrong.
       log::info!(
-        "[automation] link {href} not clickable (in_viewport={}, hit={}), trying another",
-        measurement.in_viewport,
-        measurement.hit
+        "[automation] link {href} not clickable (visible {:.0}x{:.0}), trying another",
+        measurement.rect.width,
+        measurement.rect.height
       );
       continue;
     }
@@ -1412,6 +1633,169 @@ mod tests {
       MEASURE_LINK_JS.contains("elementFromPoint"),
       "the click target must be hit-tested so overlays are caught"
     );
+  }
+
+  #[test]
+  fn the_measure_script_clips_the_link_to_the_viewport() {
+    // The bug this replaced: requiring the whole element inside the viewport is
+    // unsatisfiable for a horizontal carousel item, and the caller can only
+    // wheel vertically — so every candidate burned the scroll budget and failed.
+    for fragment in [
+      "Math.max(rect.left, 0)",
+      "Math.max(rect.top, 0)",
+      "Math.min(rect.right, vw)",
+      "Math.min(rect.bottom, vh)",
+    ] {
+      assert!(
+        MEASURE_LINK_JS.contains(fragment),
+        "{fragment} missing — the visible region is not being clipped"
+      );
+    }
+    assert!(
+      !MEASURE_LINK_JS.contains("rect.right <= "),
+      "full-containment check is back"
+    );
+  }
+
+  #[test]
+  fn no_overlay_parses_as_nothing_in_the_way() {
+    assert_eq!(
+      parse_overlay(&serde_json::json!({ "blocked": false })),
+      Overlay::None
+    );
+    assert_eq!(parse_overlay(&serde_json::json!({})), Overlay::None);
+  }
+
+  #[test]
+  fn an_overlay_with_a_close_control_parses_as_closable() {
+    let overlay = parse_overlay(&serde_json::json!({
+      "blocked": true,
+      "framed": false,
+      "control": { "x": 740.0, "y": 100.0, "width": 24.0, "height": 24.0 }
+    }));
+    match overlay {
+      Overlay::Closable(rect) => {
+        assert_eq!(
+          (rect.x, rect.y, rect.width, rect.height),
+          (740.0, 100.0, 24.0, 24.0)
+        );
+      }
+      other => panic!("expected a closable overlay, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn an_iframe_overlay_parses_as_opaque_so_escape_is_used() {
+    // A survey rendered in an iframe has no close button we can reach from the
+    // parent document; Escape is the only lever left.
+    assert_eq!(
+      parse_overlay(&serde_json::json!({ "blocked": true, "framed": true, "control": null })),
+      Overlay::Opaque
+    );
+    assert_eq!(
+      parse_overlay(&serde_json::json!({ "blocked": true, "framed": false })),
+      Overlay::Opaque
+    );
+  }
+
+  #[test]
+  fn the_overlay_script_never_clicks_the_affirmative_choice() {
+    // The Macy's survey offers "Yes I'll Help" next to "Not Right Now". Matching
+    // the wrong one would opt every profile into a survey flow.
+    let decline_list = FIND_OVERLAY_JS
+      .split("const DECLINE = [")
+      .nth(1)
+      .and_then(|s| s.split("];").next())
+      .expect("DECLINE list present")
+      .to_lowercase();
+    for affirmative in ["yes", "help", "sure", "ok", "accept", "continue'"] {
+      assert!(
+        !decline_list.contains(affirmative),
+        "{affirmative:?} must not be a dismissal phrase"
+      );
+    }
+    assert!(decline_list.contains("not right now"));
+    assert!(decline_list.contains("no thanks"));
+  }
+
+  #[test]
+  fn the_overlay_script_ignores_small_furniture() {
+    // A sticky header or cookie strip must not count as a blocking popup.
+    assert!(
+      FIND_OVERLAY_JS.contains("vw * vh * 0.12"),
+      "missing the area threshold that separates a modal from a sticky bar"
+    );
+  }
+
+  #[test]
+  fn the_overlay_script_scopes_its_search_to_the_overlay() {
+    // Searching the whole document could click "Add To Bag" on the page behind.
+    assert!(
+      FIND_OVERLAY_JS.contains("overlay.querySelector")
+        && FIND_OVERLAY_JS.contains("overlay.querySelectorAll"),
+      "dismiss controls must be looked up inside the overlay only"
+    );
+    assert!(!FIND_OVERLAY_JS.contains("document.querySelectorAll"));
+  }
+
+  fn measurement_json(
+    rect: (f64, f64, f64, f64),
+    clickable: bool,
+    comfortable: bool,
+  ) -> serde_json::Value {
+    serde_json::json!({
+      "ok": true,
+      "href": "https://a.test/x",
+      "clickable": clickable,
+      "comfortable": comfortable,
+      "rect": { "x": rect.0, "y": rect.1, "width": rect.2, "height": rect.3 },
+      "viewport": { "width": 1280, "height": 800 },
+      "offsetFromCenter": 120.0,
+    })
+  }
+
+  #[test]
+  fn a_partially_visible_link_parses_as_clickable() {
+    // A tile taller than the viewport: only a band of it shows, and that is
+    // enough to click.
+    let parsed = parse_link_measurement(&measurement_json((40.0, 0.0, 300.0, 800.0), true, false))
+      .expect("ok payload must parse");
+    assert!(parsed.clickable);
+    assert!(!parsed.comfortable);
+    assert_eq!(parsed.rect.height, 800.0);
+    assert_eq!(parsed.viewport, (1280.0, 800.0));
+  }
+
+  #[test]
+  fn the_parsed_rect_is_the_visible_region_so_click_points_stay_on_screen() {
+    let parsed =
+      parse_link_measurement(&measurement_json((0.0, 0.0, 60.0, 20.0), true, true)).unwrap();
+    for _ in 0..200 {
+      let point = human_mouse::sample_click_point(parsed.rect);
+      assert!(
+        point.x >= 0.0 && point.x <= 1280.0 && point.y >= 0.0 && point.y <= 800.0,
+        "sampled {point:?} outside the viewport"
+      );
+    }
+  }
+
+  #[test]
+  fn a_missing_link_payload_parses_as_none() {
+    assert!(parse_link_measurement(&serde_json::json!({ "ok": false })).is_none());
+    assert!(parse_link_measurement(&serde_json::json!({})).is_none());
+  }
+
+  #[test]
+  fn absent_flags_default_to_not_clickable() {
+    let parsed = parse_link_measurement(&serde_json::json!({
+      "ok": true,
+      "rect": { "x": 0, "y": 0, "width": 10, "height": 10 }
+    }))
+    .unwrap();
+    assert!(!parsed.clickable);
+    assert!(!parsed.comfortable);
+    // A zero viewport would divide by zero downstream.
+    assert_eq!(parsed.viewport, (1.0, 1.0));
   }
 
   fn run_request_json(value: serde_json::Value) -> Result<RunRequest, serde_json::Error> {

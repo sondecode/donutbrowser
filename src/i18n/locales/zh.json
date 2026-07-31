@@ -2105,6 +2105,7 @@
       "wait_for_load": "正在等待加载",
       "scroll": "正在滚动",
       "click_random_link": "正在打开随机链接",
+      "dismiss_popup": "正在关闭弹窗",
       "dwell": "正在停留在页面",
       "screenshot": "正在截图",
       "close_profile": "正在关闭配置文件"
