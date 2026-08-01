@@ -345,6 +345,13 @@ impl WayfernManager {
     Ok(())
   }
 
+  /// Wayfern owns WebRTC routing — it reports an address consistent with the
+  /// profile's proxy exit IP. Pinning `disable_non_proxied_udp` fought that:
+  /// every profile egresses through a *local* donut-proxy, and Chromium never
+  /// tunnels WebRTC UDP through SOCKS5, so the only permitted candidate left was
+  /// the proxy's own address and pages saw 127.0.0.1 while HTTP exited at the
+  /// upstream IP. Strip those keys so profiles poisoned by the old code recover
+  /// on their next launch, and never write them again.
   fn configure_webrtc_preferences(
     profile_path: &str,
     block_webrtc: bool,
@@ -352,55 +359,39 @@ impl WayfernManager {
     let default_dir = PathBuf::from(profile_path).join("Default");
     std::fs::create_dir_all(&default_dir)?;
     let prefs_path = default_dir.join("Preferences");
-    let mut prefs: serde_json::Value = if prefs_path.exists() {
-      let raw = std::fs::read_to_string(&prefs_path)?;
-      serde_json::from_str(&raw).unwrap_or_else(|_| json!({}))
-    } else {
-      json!({})
-    };
+    let mut prefs = Self::read_json_or_empty(&prefs_path)?;
+    let root = Self::ensure_json_object(&mut prefs);
 
-    if !prefs.is_object() {
-      prefs = json!({});
-    }
-    let root = prefs.as_object_mut().expect("prefs is an object");
-    let webrtc = root
-      .entry("webrtc".to_string())
-      .or_insert_with(|| json!({}));
-    if !webrtc.is_object() {
-      *webrtc = json!({});
-    }
-    if let Some(obj) = webrtc.as_object_mut() {
-      obj.insert(
-        "ip_handling_policy".to_string(),
-        json!("disable_non_proxied_udp"),
-      );
-      obj.insert("multiple_routes_enabled".to_string(), json!(false));
-      obj.insert("nonproxied_udp_enabled".to_string(), json!(false));
+    let mut changed = false;
+    let drop_webrtc = match root.get_mut("webrtc").and_then(|v| v.as_object_mut()) {
+      Some(webrtc) => {
+        for key in [
+          "ip_handling_policy",
+          "multiple_routes_enabled",
+          "nonproxied_udp_enabled",
+        ] {
+          changed |= webrtc.remove(key).is_some();
+        }
+        webrtc.is_empty()
+      }
+      None => false,
+    };
+    if drop_webrtc {
+      root.remove("webrtc");
+      changed = true;
     }
 
     if block_webrtc {
-      let profile = root
-        .entry("profile".to_string())
-        .or_insert_with(|| json!({}));
-      if !profile.is_object() {
-        *profile = json!({});
-      }
-      if let Some(profile_obj) = profile.as_object_mut() {
-        let content_settings = profile_obj
-          .entry("default_content_setting_values".to_string())
-          .or_insert_with(|| json!({}));
-        if !content_settings.is_object() {
-          *content_settings = json!({});
-        }
-        if let Some(settings_obj) = content_settings.as_object_mut() {
-          settings_obj.insert("media_stream_camera".to_string(), json!(2));
-          settings_obj.insert("media_stream_mic".to_string(), json!(2));
-        }
+      let profile = Self::ensure_child_object(root, "profile");
+      let content_settings = Self::ensure_child_object(profile, "default_content_setting_values");
+      for key in ["media_stream_camera", "media_stream_mic"] {
+        changed |= content_settings.insert(key.to_string(), json!(2)) != Some(json!(2));
       }
     }
 
-    let serialized = serde_json::to_vec_pretty(&prefs)?;
-    std::fs::write(&prefs_path, serialized)?;
+    if changed {
+      std::fs::write(&prefs_path, serde_json::to_vec_pretty(&prefs)?)?;
+    }
     Ok(())
   }
 
@@ -1029,8 +1020,6 @@ impl WayfernManager {
       "--disable-features=DialMediaRouteProvider,DnsOverHttps,AsyncDns,Prefetch,PrefetchProxy,SpeculationRulesPrefetchFuture,NoStatePrefetch".to_string(),
       "--use-mock-keychain".to_string(),
       "--password-store=basic".to_string(),
-      "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string(),
-      "--enforce-webrtc-ip-permission-check".to_string(),
     ];
     Self::append_platform_window_identity_args(&mut args, profile);
 
@@ -1896,5 +1885,62 @@ mod tests {
         .and_then(|v| v.as_str()),
       Some("Default")
     );
+  }
+
+  #[test]
+  fn webrtc_preferences_strip_the_proxied_udp_pin() {
+    let dir = tempfile::tempdir().unwrap();
+    let profile_path = dir.path().join("profile");
+    let default_dir = profile_path.join("Default");
+    std::fs::create_dir_all(&default_dir).unwrap();
+    let prefs_path = default_dir.join("Preferences");
+    std::fs::write(
+      &prefs_path,
+      serde_json::to_vec_pretty(&json!({
+        "webrtc": {
+          "ip_handling_policy": "disable_non_proxied_udp",
+          "multiple_routes_enabled": false,
+          "nonproxied_udp_enabled": false,
+        },
+        "profile": { "name": "kept" },
+      }))
+      .unwrap(),
+    )
+    .unwrap();
+
+    WayfernManager::configure_webrtc_preferences(profile_path.to_str().unwrap(), false).unwrap();
+
+    let prefs: serde_json::Value =
+      serde_json::from_str(&std::fs::read_to_string(&prefs_path).unwrap()).unwrap();
+    // The whole block goes, so Wayfern's own WebRTC handling is what applies.
+    assert!(prefs.get("webrtc").is_none());
+    // Unrelated preferences survive the cleanup.
+    assert_eq!(
+      prefs.pointer("/profile/name").and_then(|v| v.as_str()),
+      Some("kept")
+    );
+  }
+
+  #[test]
+  fn webrtc_preferences_still_block_camera_and_mic() {
+    let dir = tempfile::tempdir().unwrap();
+    let profile_path = dir.path().join("profile");
+
+    WayfernManager::configure_webrtc_preferences(profile_path.to_str().unwrap(), true).unwrap();
+
+    let prefs: serde_json::Value = serde_json::from_str(
+      &std::fs::read_to_string(profile_path.join("Default").join("Preferences")).unwrap(),
+    )
+    .unwrap();
+    for key in ["media_stream_camera", "media_stream_mic"] {
+      assert_eq!(
+        prefs
+          .pointer(&format!("/profile/default_content_setting_values/{key}"))
+          .and_then(|v| v.as_u64()),
+        Some(2),
+        "{key} should be blocked"
+      );
+    }
+    assert!(prefs.get("webrtc").is_none());
   }
 }
